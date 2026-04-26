@@ -14,6 +14,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   enableNotifications: true,
   enableBackgroundSwaps: false,
   preferredFromToken: 'ALL',
+  delayMinMinutes: 2,
+  delayMaxMinutes: 8,
+  sessionDurationHours: 8,
 };
 
 const DEFAULT_STATS: SwapStats = {

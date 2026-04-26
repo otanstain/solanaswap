@@ -29,6 +29,9 @@ export interface AppSettings {
   enableNotifications: boolean;
   enableBackgroundSwaps: boolean;
   preferredFromToken: string;
+  delayMinMinutes: number;
+  delayMaxMinutes: number;
+  sessionDurationHours: number;
 }
 
 export interface SwapStats {

@@ -1,6 +1,6 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { SwapTask, SessionState } from '../types';
-import { generateSwapQueue, formatDuration } from '../utils/randomizer';
+import { generateSwapQueue, formatDuration, SwapQueueOptions } from '../utils/randomizer';
 import {
   getQuote,
   getSwapTransaction,
@@ -14,8 +14,8 @@ import { updateStatsAfterSwap } from './storage';
 
 let sessionAbortController: AbortController | null = null;
 
-export function createSession(swapCount: number, preferredFromToken: string = 'ALL'): SessionState {
-  const rawQueue = generateSwapQueue(swapCount, preferredFromToken);
+export function createSession(swapCount: number, options: SwapQueueOptions = {}): SessionState {
+  const rawQueue = generateSwapQueue(swapCount, options);
   const swapQueue: SwapTask[] = rawQueue.map((item, index) => ({
     id: `swap-${Date.now()}-${index}`,
     fromToken: item.fromToken,

@@ -21,8 +21,10 @@ export function randomSwapAmountUsd(): number {
   return Math.round(randomInRange(SWAP_AMOUNT_MIN_USD, SWAP_AMOUNT_MAX_USD) * 100) / 100;
 }
 
-export function randomDelayMs(): number {
-  const minutes = randomInRange(DELAY_MIN_MINUTES, DELAY_MAX_MINUTES);
+export function randomDelayMs(minMinutes?: number, maxMinutes?: number): number {
+  const min = minMinutes ?? DELAY_MIN_MINUTES;
+  const max = maxMinutes ?? DELAY_MAX_MINUTES;
+  const minutes = randomInRange(min, max);
   return Math.round(minutes * 60 * 1000);
 }
 
@@ -48,13 +50,20 @@ export function pickRandomPair(): TradingPair {
   return TRADING_PAIRS[idx];
 }
 
-export function generateSwapQueue(count: number, preferredFromToken: string = 'ALL'): Array<{
+export interface SwapQueueOptions {
+  preferredFromToken?: string;
+  delayMinMinutes?: number;
+  delayMaxMinutes?: number;
+}
+
+export function generateSwapQueue(count: number, options: SwapQueueOptions = {}): Array<{
   fromToken: string;
   toToken: string;
   amountUsd: number;
   slippageBps: number;
   delayMs: number;
 }> {
+  const { preferredFromToken = 'ALL', delayMinMinutes, delayMaxMinutes } = options;
   let pairs = TRADING_PAIRS;
   if (preferredFromToken !== 'ALL') {
     pairs = TRADING_PAIRS.filter((p) => p.from === preferredFromToken);
@@ -70,7 +79,7 @@ export function generateSwapQueue(count: number, preferredFromToken: string = 'A
       toToken: pair.to,
       amountUsd: randomSwapAmountUsd(),
       slippageBps: randomSlippageBps(),
-      delayMs: i === 0 ? 0 : randomDelayMs(),
+      delayMs: i === 0 ? 0 : randomDelayMs(delayMinMinutes, delayMaxMinutes),
     });
   }
 

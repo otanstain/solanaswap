@@ -25,6 +25,9 @@ export default function SettingsScreen() {
     enableNotifications: true,
     enableBackgroundSwaps: false,
     preferredFromToken: 'ALL',
+    delayMinMinutes: 2,
+    delayMaxMinutes: 8,
+    sessionDurationHours: 8,
   });
   const [saved, setSaved] = useState(false);
 
@@ -84,6 +87,30 @@ export default function SettingsScreen() {
     [settings.dailyBudgetUsd, updateSetting],
   );
 
+  const adjustDelayMin = useCallback(
+    (delta: number) => {
+      const newVal = Math.max(0.5, Math.min(settings.delayMaxMinutes - 0.5, settings.delayMinMinutes + delta));
+      updateSetting('delayMinMinutes', Math.round(newVal * 10) / 10);
+    },
+    [settings.delayMinMinutes, settings.delayMaxMinutes, updateSetting],
+  );
+
+  const adjustDelayMax = useCallback(
+    (delta: number) => {
+      const newVal = Math.max(settings.delayMinMinutes + 0.5, Math.min(60, settings.delayMaxMinutes + delta));
+      updateSetting('delayMaxMinutes', Math.round(newVal * 10) / 10);
+    },
+    [settings.delayMaxMinutes, settings.delayMinMinutes, updateSetting],
+  );
+
+  const adjustSessionDuration = useCallback(
+    (delta: number) => {
+      const newVal = Math.max(1, Math.min(24, settings.sessionDurationHours + delta));
+      updateSetting('sessionDurationHours', newVal);
+    },
+    [settings.sessionDurationHours, updateSetting],
+  );
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Settings</Text>
@@ -128,6 +155,53 @@ export default function SettingsScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.stepBtn} onPress={() => adjustBudget(25)}>
             <Text style={styles.stepBtnText}>+25</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Delay Between Swaps */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Delay Between Swaps</Text>
+        <Text style={styles.cardSubtitle}>Random delay range (minutes)</Text>
+        <View style={styles.delayRow}>
+          <View style={styles.delayCol}>
+            <Text style={styles.delayLabel}>Min</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={styles.stepBtn} onPress={() => adjustDelayMin(-1)}>
+                <Text style={styles.stepBtnText}>-1</Text>
+              </TouchableOpacity>
+              <Text style={styles.stepValue}>{settings.delayMinMinutes}m</Text>
+              <TouchableOpacity style={styles.stepBtn} onPress={() => adjustDelayMin(1)}>
+                <Text style={styles.stepBtnText}>+1</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={styles.delayCol}>
+            <Text style={styles.delayLabel}>Max</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={styles.stepBtn} onPress={() => adjustDelayMax(-1)}>
+                <Text style={styles.stepBtnText}>-1</Text>
+              </TouchableOpacity>
+              <Text style={styles.stepValue}>{settings.delayMaxMinutes}m</Text>
+              <TouchableOpacity style={styles.stepBtn} onPress={() => adjustDelayMax(1)}>
+                <Text style={styles.stepBtnText}>+1</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Session Duration */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Session Duration</Text>
+        <Text style={styles.cardSubtitle}>Total time for all swaps (hours)</Text>
+        <View style={styles.stepper}>
+          <TouchableOpacity style={styles.stepBtn} onPress={() => adjustSessionDuration(-1)}>
+            <Text style={styles.stepBtnText}>-1</Text>
+          </TouchableOpacity>
+          <Text style={styles.stepValue}>{settings.sessionDurationHours}h</Text>
+          <TouchableOpacity style={styles.stepBtn} onPress={() => adjustSessionDuration(1)}>
+            <Text style={styles.stepBtnText}>+1</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -322,5 +396,18 @@ const styles = StyleSheet.create({
   },
   tokenBtnTextActive: {
     color: '#14F195',
+  },
+  delayRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  delayCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  delayLabel: {
+    color: '#888',
+    fontSize: 13,
+    marginBottom: 8,
   },
 });
