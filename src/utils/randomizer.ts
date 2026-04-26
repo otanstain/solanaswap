@@ -1,0 +1,88 @@
+import {
+  SWAP_AMOUNT_MIN_USD,
+  SWAP_AMOUNT_MAX_USD,
+  DELAY_MIN_MINUTES,
+  DELAY_MAX_MINUTES,
+  SLIPPAGE_MIN_BPS,
+  SLIPPAGE_MAX_BPS,
+  TRADING_PAIRS,
+  TradingPair,
+} from '../constants/tokens';
+
+function randomInRange(min: number, max: number): number {
+  return Math.random() * (max - min) + min;
+}
+
+function randomIntInRange(min: number, max: number): number {
+  return Math.floor(randomInRange(min, max + 1));
+}
+
+export function randomSwapAmountUsd(): number {
+  return Math.round(randomInRange(SWAP_AMOUNT_MIN_USD, SWAP_AMOUNT_MAX_USD) * 100) / 100;
+}
+
+export function randomDelayMs(): number {
+  const minutes = randomInRange(DELAY_MIN_MINUTES, DELAY_MAX_MINUTES);
+  return Math.round(minutes * 60 * 1000);
+}
+
+export function randomSlippageBps(): number {
+  return randomIntInRange(SLIPPAGE_MIN_BPS, SLIPPAGE_MAX_BPS);
+}
+
+export function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+export function generateDailyPairOrder(): TradingPair[] {
+  return shuffleArray(TRADING_PAIRS);
+}
+
+export function pickRandomPair(): TradingPair {
+  const idx = Math.floor(Math.random() * TRADING_PAIRS.length);
+  return TRADING_PAIRS[idx];
+}
+
+export function generateSwapQueue(count: number): Array<{
+  fromToken: string;
+  toToken: string;
+  amountUsd: number;
+  slippageBps: number;
+  delayMs: number;
+}> {
+  const shuffledPairs = generateDailyPairOrder();
+  const queue = [];
+
+  for (let i = 0; i < count; i++) {
+    const pair = shuffledPairs[i % shuffledPairs.length];
+    queue.push({
+      fromToken: pair.from,
+      toToken: pair.to,
+      amountUsd: randomSwapAmountUsd(),
+      slippageBps: randomSlippageBps(),
+      delayMs: i === 0 ? 0 : randomDelayMs(),
+    });
+  }
+
+  return queue;
+}
+
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+export function formatUsd(amount: number): string {
+  return `$${amount.toFixed(2)}`;
+}
+
+export function formatSol(lamports: number): string {
+  return `${(lamports / 1e9).toFixed(4)} SOL`;
+}
