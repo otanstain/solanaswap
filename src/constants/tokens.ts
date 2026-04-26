@@ -30,10 +30,10 @@ export const TOKENS: Record<string, TokenInfo> = {
     decimals: 6,
     coingeckoId: 'tether',
   },
-  SCR: {
-    symbol: 'SCR',
+  SKR: {
+    symbol: 'SKR',
     name: 'Seeker',
-    mint: new PublicKey('SCRLetnGd4PqEzeMq7Kcppbv6HDfj3tLZosMfqhGivb'),
+    mint: new PublicKey('SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3'),
     decimals: 9,
   },
 };
@@ -51,8 +51,8 @@ export const TRADING_PAIRS: TradingPair[] = [
   { from: 'USDT', to: 'SOL', label: 'USDT → SOL' },
   { from: 'USDC', to: 'USDT', label: 'USDC → USDT' },
   { from: 'USDT', to: 'USDC', label: 'USDT → USDC' },
-  { from: 'SOL', to: 'SCR', label: 'SOL → SCR' },
-  { from: 'SCR', to: 'SOL', label: 'SCR → SOL' },
+  { from: 'SOL', to: 'SKR', label: 'SOL → SKR' },
+  { from: 'SKR', to: 'SOL', label: 'SKR → SOL' },
 ];
 
 export const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';

@@ -13,7 +13,10 @@ import { loadSettings, saveSettings, clearAllData } from '../services/storage';
 import {
   MIN_SWAPS_PER_DAY,
   MAX_SWAPS_PER_DAY,
+  TOKENS,
 } from '../constants/tokens';
+
+const FROM_TOKEN_OPTIONS = ['ALL', ...Object.keys(TOKENS)];
 
 export default function SettingsScreen() {
   const [settings, setSettings] = useState<AppSettings>({
@@ -21,6 +24,7 @@ export default function SettingsScreen() {
     dailyBudgetUsd: 100,
     enableNotifications: true,
     enableBackgroundSwaps: false,
+    preferredFromToken: 'ALL',
   });
   const [saved, setSaved] = useState(false);
 
@@ -125,6 +129,35 @@ export default function SettingsScreen() {
           <TouchableOpacity style={styles.stepBtn} onPress={() => adjustBudget(25)}>
             <Text style={styles.stepBtnText}>+25</Text>
           </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Preferred From Token */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Swap From Token</Text>
+        <Text style={styles.cardSubtitle}>
+          Choose which token to swap from (ALL = random pairs)
+        </Text>
+        <View style={styles.tokenSelector}>
+          {FROM_TOKEN_OPTIONS.map((token) => (
+            <TouchableOpacity
+              key={token}
+              style={[
+                styles.tokenBtn,
+                settings.preferredFromToken === token && styles.tokenBtnActive,
+              ]}
+              onPress={() => updateSetting('preferredFromToken', token)}
+            >
+              <Text
+                style={[
+                  styles.tokenBtnText,
+                  settings.preferredFromToken === token && styles.tokenBtnTextActive,
+                ]}
+              >
+                {token}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
@@ -264,5 +297,30 @@ const styles = StyleSheet.create({
   resetBtnText: {
     color: '#ff4444',
     fontSize: 14,
+  },
+  tokenSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tokenBtn: {
+    backgroundColor: '#2a2a4a',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a4a',
+  },
+  tokenBtnActive: {
+    borderColor: '#14F195',
+    backgroundColor: '#1a3a2e',
+  },
+  tokenBtnText: {
+    color: '#888',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tokenBtnTextActive: {
+    color: '#14F195',
   },
 });

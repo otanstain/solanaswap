@@ -48,14 +48,19 @@ export function pickRandomPair(): TradingPair {
   return TRADING_PAIRS[idx];
 }
 
-export function generateSwapQueue(count: number): Array<{
+export function generateSwapQueue(count: number, preferredFromToken: string = 'ALL'): Array<{
   fromToken: string;
   toToken: string;
   amountUsd: number;
   slippageBps: number;
   delayMs: number;
 }> {
-  const shuffledPairs = generateDailyPairOrder();
+  let pairs = TRADING_PAIRS;
+  if (preferredFromToken !== 'ALL') {
+    pairs = TRADING_PAIRS.filter((p) => p.from === preferredFromToken);
+    if (pairs.length === 0) pairs = TRADING_PAIRS;
+  }
+  const shuffledPairs = shuffleArray(pairs);
   const queue = [];
 
   for (let i = 0; i < count; i++) {

@@ -13,8 +13,8 @@ import { updateStatsAfterSwap } from './storage';
 
 let sessionAbortController: AbortController | null = null;
 
-export function createSession(swapCount: number): SessionState {
-  const rawQueue = generateSwapQueue(swapCount);
+export function createSession(swapCount: number, preferredFromToken: string = 'ALL'): SessionState {
+  const rawQueue = generateSwapQueue(swapCount, preferredFromToken);
   const swapQueue: SwapTask[] = rawQueue.map((item, index) => ({
     id: `swap-${Date.now()}-${index}`,
     fromToken: item.fromToken,

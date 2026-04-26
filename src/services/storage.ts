@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   dailyBudgetUsd: 100,
   enableNotifications: true,
   enableBackgroundSwaps: false,
+  preferredFromToken: 'ALL',
 };
 
 const DEFAULT_STATS: SwapStats = {

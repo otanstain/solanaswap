@@ -76,7 +76,7 @@ export default function SwapScreen() {
     await requestNotificationPermissions();
     await cancelAllNotifications();
 
-    const newSession = createSession(settings.swapsPerDay);
+    const newSession = createSession(settings.swapsPerDay, settings.preferredFromToken);
     setSession(newSession);
 
     await runSwapSession(

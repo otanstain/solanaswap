@@ -28,6 +28,7 @@ export interface AppSettings {
   dailyBudgetUsd: number;
   enableNotifications: boolean;
   enableBackgroundSwaps: boolean;
+  preferredFromToken: string;
 }
 
 export interface SwapStats {
