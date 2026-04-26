@@ -12,6 +12,7 @@ import { useMobileWallet } from '../hooks/useMobileWallet';
 import { createSession, runSwapSession, abortSession } from '../services/swapEngine';
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
+import { getTokenBalance } from '../services/jupiter';
 import {
   scheduleNextSwapNotification,
   sendSwapCompletedNotification,
@@ -32,11 +33,33 @@ export default function SwapScreen() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [countdown, setCountdown] = useState<string>('');
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [balances, setBalances] = useState<Record<string, { balance: number; balanceUsd: number }>>({
+    SOL: { balance: 0, balanceUsd: 0 },
+    USDC: { balance: 0, balanceUsd: 0 },
+    USDT: { balance: 0, balanceUsd: 0 },
+    SKR: { balance: 0, balanceUsd: 0 },
+  });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     loadSettings().then(setSettings);
   }, []);
+
+  const fetchBalances = useCallback(async () => {
+    if (!publicKey || !connection) return;
+    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
+    const results: Record<string, { balance: number; balanceUsd: number }> = {};
+    for (const token of tokens) {
+      results[token] = await getTokenBalance(connection, publicKey, token);
+    }
+    setBalances(results);
+  }, [publicKey, connection]);
+
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchBalances();
+    }
+  }, [isAuthorized, fetchBalances]);
 
   // Countdown timer
   useEffect(() => {
@@ -99,6 +122,9 @@ export default function SwapScreen() {
             totalSwaps,
           );
         }
+
+        // Refresh balances after each swap
+        fetchBalances();
 
         // Schedule notification for next swap
         const nextIdx = newSession.currentSwapIndex + 1;
@@ -212,6 +238,18 @@ export default function SwapScreen() {
         <Text style={styles.walletAddress}>
           {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
         </Text>
+      </View>
+
+      {/* Balances */}
+      <View style={styles.balancesBar}>
+        {Object.entries(balances).map(([token, { balance }]) => (
+          <View key={token} style={styles.balanceItem}>
+            <Text style={styles.balanceTokenLabel}>{token}</Text>
+            <Text style={styles.balanceTokenValue}>
+              {token === 'SOL' ? balance.toFixed(4) : balance.toFixed(2)}
+            </Text>
+          </View>
+        ))}
       </View>
 
       {/* Status Bar */}
@@ -340,6 +378,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
+  },
+  balancesBar: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  balanceItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  balanceTokenLabel: {
+    color: '#888',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  balanceTokenValue: {
+    color: '#14F195',
+    fontSize: 13,
+    fontWeight: '600',
   },
   statusBar: {
     flexDirection: 'row',

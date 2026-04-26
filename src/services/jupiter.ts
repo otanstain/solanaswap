@@ -112,6 +112,39 @@ export function usdToTokenAmount(
   return Math.floor(tokenAmount * Math.pow(10, decimals));
 }
 
+export async function getTokenBalance(
+  connection: Connection,
+  walletPubkey: import('@solana/web3.js').PublicKey,
+  tokenSymbol: string,
+): Promise<{ balance: number; balanceUsd: number }> {
+  const tokenInfo = TOKENS[tokenSymbol];
+  if (!tokenInfo) return { balance: 0, balanceUsd: 0 };
+
+  try {
+    let balance: number;
+
+    if (tokenSymbol === 'SOL') {
+      const lamports = await connection.getBalance(walletPubkey);
+      balance = lamports / Math.pow(10, tokenInfo.decimals);
+    } else {
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+        walletPubkey,
+        { mint: tokenInfo.mint },
+      );
+      if (tokenAccounts.value.length > 0) {
+        balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0;
+      } else {
+        balance = 0;
+      }
+    }
+
+    const price = await getTokenPrice(tokenSymbol);
+    return { balance, balanceUsd: balance * price };
+  } catch {
+    return { balance: 0, balanceUsd: 0 };
+  }
+}
+
 export async function confirmTransaction(
   connection: Connection,
   signature: string,

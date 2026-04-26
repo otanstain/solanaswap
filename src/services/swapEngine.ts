@@ -7,6 +7,7 @@ import {
   getTokenPrice,
   usdToTokenAmount,
   confirmTransaction,
+  getTokenBalance,
 } from './jupiter';
 import { TOKENS, RPC_ENDPOINT } from '../constants/tokens';
 import { updateStatsAfterSwap } from './storage';
@@ -54,6 +55,17 @@ export async function executeSwap(
     const fromTokenInfo = TOKENS[task.fromToken];
     if (!fromTokenInfo) {
       throw new Error(`Unknown token: ${task.fromToken}`);
+    }
+
+    // Check balance before swap
+    const { balanceUsd } = await getTokenBalance(connection, userPublicKey, task.fromToken);
+    const MIN_SOL_RESERVE = 0.01; // Keep 0.01 SOL for gas
+    const reserveUsd = task.fromToken === 'SOL' ? MIN_SOL_RESERVE * (await getTokenPrice('SOL')) : 0;
+
+    if (balanceUsd - reserveUsd < task.amountUsd) {
+      throw new Error(
+        `Insufficient ${task.fromToken} balance: $${balanceUsd.toFixed(2)} available, $${task.amountUsd.toFixed(2)} needed`,
+      );
     }
 
     const tokenPrice = await getTokenPrice(task.fromToken);
