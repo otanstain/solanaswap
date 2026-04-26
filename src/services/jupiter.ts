@@ -1,5 +1,17 @@
-import { Connection, VersionedTransaction } from '@solana/web3.js';
-import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS } from '../constants/tokens';
+import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js';
+import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS, PLATFORM_FEE_ACCOUNT } from '../constants/tokens';
+
+const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+const FEE_WALLET = new PublicKey(PLATFORM_FEE_ACCOUNT);
+
+function getAssociatedTokenAddress(owner: PublicKey, mint: PublicKey): PublicKey {
+  const [address] = PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  return address;
+}
 
 export interface QuoteResponse {
   inputMint: string;
@@ -92,7 +104,12 @@ export async function getSwapTransaction(
   quoteResponse: QuoteResponse,
   userPublicKey: string,
 ): Promise<VersionedTransaction> {
-  const response = await fetchWithRetry(`${JUPITER_API_URL}/swap`, {
+  // Derive fee token account for the output mint
+  const outputMint = new PublicKey(quoteResponse.outputMint);
+  const feeTokenAccount = getAssociatedTokenAddress(FEE_WALLET, outputMint);
+
+  // Try with fee first, fall back without fee if it fails
+  let response = await fetchWithRetry(`${JUPITER_API_URL}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -101,8 +118,25 @@ export async function getSwapTransaction(
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: 'auto',
+      feeAccount: feeTokenAccount.toBase58(),
     }),
   });
+
+  // If fee account fails (e.g. ATA doesn't exist), retry without fee
+  if (!response.ok) {
+    console.warn('Swap with fee failed, retrying without fee...');
+    response = await fetchWithRetry(`${JUPITER_API_URL}/swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteResponse,
+        userPublicKey,
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: 'auto',
+      }),
+    });
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
