@@ -69,4 +69,4 @@ export const SLIPPAGE_MIN_BPS = 50;   // 0.5%
 export const SLIPPAGE_MAX_BPS = 150;  // 1.5%
 export const DEFAULT_SWAPS_PER_DAY = 50;
 export const MAX_SWAPS_PER_DAY = 100;
-export const MIN_SWAPS_PER_DAY = 50;
+export const MIN_SWAPS_PER_DAY = 1;

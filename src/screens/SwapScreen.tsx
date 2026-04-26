@@ -13,6 +13,7 @@ import { createSession, runSwapSession, abortSession } from '../services/swapEng
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
 import { getTokenBalance } from '../services/jupiter';
+import { TOKENS } from '../constants/tokens';
 import {
   scheduleNextSwapNotification,
   sendSwapCompletedNotification,
@@ -20,6 +21,8 @@ import {
   cancelAllNotifications,
   requestNotificationPermissions,
 } from '../services/notifications';
+
+const FROM_TOKEN_OPTIONS = ['ALL', ...Object.keys(TOKENS)];
 
 export default function SwapScreen() {
   const {
@@ -39,6 +42,7 @@ export default function SwapScreen() {
     USDT: { balance: 0, balanceUsd: 0 },
     SKR: { balance: 0, balanceUsd: 0 },
   });
+  const [selectedFromToken, setSelectedFromToken] = useState<string>('ALL');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -99,7 +103,7 @@ export default function SwapScreen() {
     await requestNotificationPermissions();
     await cancelAllNotifications();
 
-    const newSession = createSession(settings.swapsPerDay, settings.preferredFromToken);
+    const newSession = createSession(settings.swapsPerDay, selectedFromToken);
     setSession(newSession);
 
     await runSwapSession(
@@ -252,6 +256,34 @@ export default function SwapScreen() {
         ))}
       </View>
 
+      {/* Token Selector */}
+      {(!session || !session.isActive) && (
+        <View style={styles.tokenSelectorContainer}>
+          <Text style={styles.tokenSelectorLabel}>Swap From:</Text>
+          <View style={styles.tokenSelector}>
+            {FROM_TOKEN_OPTIONS.map((token) => (
+              <TouchableOpacity
+                key={token}
+                style={[
+                  styles.tokenBtn,
+                  selectedFromToken === token && styles.tokenBtnActive,
+                ]}
+                onPress={() => setSelectedFromToken(token)}
+              >
+                <Text
+                  style={[
+                    styles.tokenBtnText,
+                    selectedFromToken === token && styles.tokenBtnTextActive,
+                  ]}
+                >
+                  {token}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
       {/* Status Bar */}
       {session && (
         <View style={styles.statusBar}>
@@ -378,6 +410,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
+  },
+  tokenSelectorContainer: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+  },
+  tokenSelectorLabel: {
+    color: '#888',
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  tokenSelector: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  tokenBtn: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1a1a2e',
+  },
+  tokenBtnActive: {
+    borderColor: '#14F195',
+    backgroundColor: '#1a3a2e',
+  },
+  tokenBtnText: {
+    color: '#888',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tokenBtnTextActive: {
+    color: '#14F195',
   },
   balancesBar: {
     flexDirection: 'row',
