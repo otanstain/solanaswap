@@ -50,6 +50,7 @@ export async function executeSwap(
   userPublicKey: PublicKey,
   signAndSend: (tx: never) => Promise<string>,
   connection: Connection,
+  remainingSwaps: number = 1,
 ): Promise<{ success: boolean; signature?: string; gasUsed?: number; error?: string }> {
   try {
     const fromTokenInfo = TOKENS[task.fromToken];
@@ -62,16 +63,31 @@ export async function executeSwap(
       throw new Error(`Cannot get price for ${task.fromToken}`);
     }
 
-    // Check balance before swap using raw token balance (single price call)
+    // Always check SOL for gas — each swap needs ~0.005 SOL for gas
+    // Reserve gas for current swap + all remaining swaps (including reverse swaps)
+    const GAS_PER_SWAP_SOL = 0.005;
+    const gasReserveSol = GAS_PER_SWAP_SOL * (remainingSwaps + 1); // +1 for safety margin
+
+    const { balance: solBalance } = await getTokenBalance(connection, userPublicKey, 'SOL');
+    if (solBalance < gasReserveSol) {
+      throw new Error(
+        `Insufficient SOL for gas: ${solBalance.toFixed(4)} SOL available, need ${gasReserveSol.toFixed(4)} SOL for ${remainingSwaps} remaining swaps`,
+      );
+    }
+
+    // Check balance of swap token
     const { balance: rawBalance } = await getTokenBalance(connection, userPublicKey, task.fromToken);
-    const MIN_SOL_RESERVE = 0.01;
-    const reserve = task.fromToken === 'SOL' ? MIN_SOL_RESERVE : 0;
     const neededTokenAmount = task.amountUsd / tokenPrice;
 
-    if (rawBalance - reserve < neededTokenAmount) {
-      const availableUsd = (rawBalance - reserve) * tokenPrice;
+    // If swapping SOL, also reserve gas from SOL balance
+    const effectiveBalance = task.fromToken === 'SOL'
+      ? rawBalance - gasReserveSol
+      : rawBalance;
+
+    if (effectiveBalance < neededTokenAmount) {
+      const availableUsd = Math.max(0, effectiveBalance) * tokenPrice;
       throw new Error(
-        `Insufficient ${task.fromToken} balance: $${availableUsd.toFixed(2)} available, $${task.amountUsd.toFixed(2)} needed`,
+        `Insufficient ${task.fromToken}: $${availableUsd.toFixed(2)} available, $${task.amountUsd.toFixed(2)} needed (reserving gas for ${remainingSwaps} swaps)`,
       );
     }
 
@@ -167,7 +183,8 @@ export async function runSwapSession(
     task.status = 'executing';
     onUpdate({ ...session });
 
-    const result = await executeSwap(task, userPublicKey, signAndSend, connection);
+    const remainingSwaps = session.swapQueue.length - i;
+    const result = await executeSwap(task, userPublicKey, signAndSend, connection, remainingSwaps);
 
     if (result.success) {
       task.status = 'completed';
@@ -180,6 +197,15 @@ export async function runSwapSession(
       task.status = 'failed';
       task.errorMessage = result.error;
       session.failedToday += 1;
+
+      // Stop session if out of SOL for gas
+      if (result.error?.includes('Insufficient SOL for gas')) {
+        session.isActive = false;
+        session.nextSwapTime = null;
+        onSwapComplete(task, result);
+        onUpdate({ ...session });
+        return;
+      }
     }
 
     onSwapComplete(task, result);
