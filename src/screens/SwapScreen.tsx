@@ -46,7 +46,12 @@ export default function SwapScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    loadSettings().then(setSettings);
+    loadSettings().then((loaded) => {
+      setSettings(loaded);
+      if (loaded.preferredFromToken) {
+        setSelectedFromToken(loaded.preferredFromToken);
+      }
+    });
   }, []);
 
   const fetchBalances = useCallback(async () => {

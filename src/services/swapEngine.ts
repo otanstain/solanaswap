@@ -199,8 +199,8 @@ export async function runSwapSession(
       task.errorMessage = result.error;
       session.failedToday += 1;
 
-      // Stop session if out of SOL for gas
-      if (result.error?.includes('Insufficient SOL for gas')) {
+      // Stop session if out of funds
+      if (result.error?.includes('Insufficient ')) {
         session.isActive = false;
         session.nextSwapTime = null;
         onSwapComplete(task, result);
