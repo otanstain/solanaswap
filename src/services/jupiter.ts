@@ -1,5 +1,5 @@
 import { Connection, VersionedTransaction } from '@solana/web3.js';
-import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS, PLATFORM_FEE_ACCOUNT } from '../constants/tokens';
+import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS } from '../constants/tokens';
 
 export interface QuoteResponse {
   inputMint: string;
@@ -30,6 +30,35 @@ export interface SwapResult {
   outputAmount: string;
 }
 
+async function fetchWithRetry(
+  url: string,
+  options?: RequestInit,
+  maxRetries: number = 3,
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`Fetch attempt ${attempt + 1}/${maxRetries} failed: ${lastError.message}`);
+    }
+  }
+
+  throw new Error(`Network request failed after ${maxRetries} attempts: ${lastError?.message}`);
+}
+
 export async function getQuote(
   fromToken: string,
   toToken: string,
@@ -49,11 +78,11 @@ export async function getQuote(
     platformFeeBps: PLATFORM_FEE_BPS.toString(),
   });
 
-  const response = await fetch(`${JUPITER_API_URL}/quote?${params.toString()}`);
+  const response = await fetchWithRetry(`${JUPITER_API_URL}/quote?${params.toString()}`);
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Jupiter quote failed: ${response.status} - ${errorText}`);
+    throw new Error(`Jupiter quote error (${response.status}): ${errorText}`);
   }
 
   return response.json();
@@ -63,7 +92,7 @@ export async function getSwapTransaction(
   quoteResponse: QuoteResponse,
   userPublicKey: string,
 ): Promise<VersionedTransaction> {
-  const response = await fetch(`${JUPITER_API_URL}/swap`, {
+  const response = await fetchWithRetry(`${JUPITER_API_URL}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -72,13 +101,12 @@ export async function getSwapTransaction(
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: 'auto',
-      feeAccount: PLATFORM_FEE_ACCOUNT,
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Jupiter swap failed: ${response.status} - ${errorText}`);
+    throw new Error(`Jupiter swap error (${response.status}): ${errorText}`);
   }
 
   const swapData = await response.json();
@@ -93,8 +121,10 @@ export async function getTokenPrice(tokenSymbol: string): Promise<number> {
   if (tokenSymbol === 'USDC' || tokenSymbol === 'USDT') return 1;
 
   try {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://api.jup.ag/price/v2?ids=${tokenInfo.mint.toBase58()}`,
+      undefined,
+      2,
     );
     const data = await response.json();
     const priceData = data.data[tokenInfo.mint.toBase58()];
