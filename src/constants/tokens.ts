@@ -58,6 +58,9 @@ export const TRADING_PAIRS: TradingPair[] = [
 export const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 export const JUPITER_API_URL = 'https://quote-api.jup.ag/v6';
 
+export const PLATFORM_FEE_BPS = 25; // 0.25%
+export const PLATFORM_FEE_ACCOUNT = 'J6X5C1QmsENS4wKa1rQz1cxFxGN5msNK4NYNFeHdPdT8';
+
 export const SWAP_AMOUNT_MIN_USD = 1;
 export const SWAP_AMOUNT_MAX_USD = 15;
 export const DELAY_MIN_MINUTES = 2;

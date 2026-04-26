@@ -57,20 +57,22 @@ export async function executeSwap(
       throw new Error(`Unknown token: ${task.fromToken}`);
     }
 
-    // Check balance before swap
-    const { balanceUsd } = await getTokenBalance(connection, userPublicKey, task.fromToken);
-    const MIN_SOL_RESERVE = 0.01; // Keep 0.01 SOL for gas
-    const reserveUsd = task.fromToken === 'SOL' ? MIN_SOL_RESERVE * (await getTokenPrice('SOL')) : 0;
-
-    if (balanceUsd - reserveUsd < task.amountUsd) {
-      throw new Error(
-        `Insufficient ${task.fromToken} balance: $${balanceUsd.toFixed(2)} available, $${task.amountUsd.toFixed(2)} needed`,
-      );
-    }
-
     const tokenPrice = await getTokenPrice(task.fromToken);
     if (tokenPrice <= 0) {
       throw new Error(`Cannot get price for ${task.fromToken}`);
+    }
+
+    // Check balance before swap using raw token balance (single price call)
+    const { balance: rawBalance } = await getTokenBalance(connection, userPublicKey, task.fromToken);
+    const MIN_SOL_RESERVE = 0.01;
+    const reserve = task.fromToken === 'SOL' ? MIN_SOL_RESERVE : 0;
+    const neededTokenAmount = task.amountUsd / tokenPrice;
+
+    if (rawBalance - reserve < neededTokenAmount) {
+      const availableUsd = (rawBalance - reserve) * tokenPrice;
+      throw new Error(
+        `Insufficient ${task.fromToken} balance: $${availableUsd.toFixed(2)} available, $${task.amountUsd.toFixed(2)} needed`,
+      );
     }
 
     const amountLamports = usdToTokenAmount(

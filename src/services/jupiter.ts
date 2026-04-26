@@ -1,5 +1,5 @@
 import { Connection, VersionedTransaction } from '@solana/web3.js';
-import { TOKENS, JUPITER_API_URL } from '../constants/tokens';
+import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS, PLATFORM_FEE_ACCOUNT } from '../constants/tokens';
 
 export interface QuoteResponse {
   inputMint: string;
@@ -46,6 +46,7 @@ export async function getQuote(
     slippageBps: slippageBps.toString(),
     onlyDirectRoutes: 'false',
     asLegacyTransaction: 'false',
+    platformFeeBps: PLATFORM_FEE_BPS.toString(),
   });
 
   const response = await fetch(`${JUPITER_API_URL}/quote?${params.toString()}`);
@@ -71,6 +72,7 @@ export async function getSwapTransaction(
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: 'auto',
+      feeAccount: PLATFORM_FEE_ACCOUNT,
     }),
   });
 
