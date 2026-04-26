@@ -76,6 +76,7 @@ export async function getQuote(
   toToken: string,
   amountLamports: number,
   slippageBps: number,
+  includePlatformFee: boolean = true,
 ): Promise<QuoteResponse> {
   const inputMint = TOKENS[fromToken].mint.toBase58();
   const outputMint = TOKENS[toToken].mint.toBase58();
@@ -87,8 +88,11 @@ export async function getQuote(
     slippageBps: slippageBps.toString(),
     onlyDirectRoutes: 'false',
     asLegacyTransaction: 'false',
-    platformFeeBps: PLATFORM_FEE_BPS.toString(),
   });
+
+  if (includePlatformFee) {
+    params.set('platformFeeBps', PLATFORM_FEE_BPS.toString());
+  }
 
   const response = await fetchWithRetry(`${JUPITER_API_URL}/quote?${params.toString()}`);
 
@@ -100,15 +104,23 @@ export async function getQuote(
   return response.json();
 }
 
+export interface SwapOptions {
+  fromToken: string;
+  toToken: string;
+  amountLamports: number;
+  slippageBps: number;
+}
+
 export async function getSwapTransaction(
   quoteResponse: QuoteResponse,
   userPublicKey: string,
+  swapOptions?: SwapOptions,
 ): Promise<VersionedTransaction> {
   // Derive fee token account for the output mint
   const outputMint = new PublicKey(quoteResponse.outputMint);
   const feeTokenAccount = getAssociatedTokenAddress(FEE_WALLET, outputMint);
 
-  // Try with fee first, fall back without fee if it fails
+  // Try with fee first
   let response = await fetchWithRetry(`${JUPITER_API_URL}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -122,14 +134,21 @@ export async function getSwapTransaction(
     }),
   });
 
-  // If fee account fails (e.g. ATA doesn't exist), retry without fee
-  if (!response.ok) {
-    console.warn('Swap with fee failed, retrying without fee...');
+  // If fee swap fails and we have params to re-quote, get a fresh quote without fee
+  if (!response.ok && swapOptions) {
+    console.warn('Swap with fee failed, re-quoting without platform fee...');
+    const freshQuote = await getQuote(
+      swapOptions.fromToken,
+      swapOptions.toToken,
+      swapOptions.amountLamports,
+      swapOptions.slippageBps,
+      false,
+    );
     response = await fetchWithRetry(`${JUPITER_API_URL}/swap`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        quoteResponse,
+        quoteResponse: freshQuote,
         userPublicKey,
         wrapAndUnwrapSol: true,
         dynamicComputeUnitLimit: true,

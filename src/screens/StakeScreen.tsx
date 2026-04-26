@@ -70,7 +70,9 @@ export default function StakeScreen() {
       const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
 
       const quote = await getQuote('SOL', 'SKR', lamports, 100);
-      const swapTx = await getSwapTransaction(quote, publicKey.toBase58());
+      const swapTx = await getSwapTransaction(quote, publicKey.toBase58(), {
+        fromToken: 'SOL', toToken: 'SKR', amountLamports: lamports, slippageBps: 100,
+      });
 
       const signature = await signAndSendTransaction(swapTx);
       Alert.alert('Success', `Bought SKR!\nTx: ${String(signature).slice(0, 20)}...`);

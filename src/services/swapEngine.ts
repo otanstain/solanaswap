@@ -111,6 +111,7 @@ export async function executeSwap(
     const swapTx = await getSwapTransaction(
       quote,
       userPublicKey.toBase58(),
+      { fromToken: task.fromToken, toToken: task.toToken, amountLamports, slippageBps: task.slippageBps },
     );
 
     const signature = await signAndSend(swapTx as never);

@@ -155,7 +155,7 @@ export default function SwapScreen() {
         newSession.totalGasSpent / 1e9,
       );
     }
-  }, [publicKey, settings, signAndSendTransaction]);
+  }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances]);
 
   const handleStopSession = useCallback(() => {
     Alert.alert('Stop Session', 'Are you sure you want to stop the current session?', [
