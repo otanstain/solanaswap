@@ -2,6 +2,7 @@
   "expo": {
     "name": "Seeker Auto-Swap",
     "slug": "seeker-auto-swap",
+    "owner": "daysgone",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -28,7 +29,9 @@
         "RECEIVE_BOOT_COMPLETED",
         "WAKE_LOCK",
         "FOREGROUND_SERVICE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
       ]
     },
     "web": {
@@ -43,6 +46,11 @@
           "color": "#14F195"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2b6d33d2-57a9-4031-8a47-1ecb8859cb16"
+      }
+    }
   }
 }
