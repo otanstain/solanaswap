@@ -139,9 +139,9 @@ export default function SwapScreen() {
         // Refresh balances after each swap
         fetchBalances();
 
-        // Schedule notification for next swap
+        // Schedule notification for next swap (skip if session stopped)
         const nextIdx = newSession.currentSwapIndex + 1;
-        if (nextIdx < newSession.swapQueue.length && settings.enableNotifications) {
+        if (newSession.isActive && nextIdx < newSession.swapQueue.length && settings.enableNotifications) {
           const nextTask = newSession.swapQueue[nextIdx];
           const nextLabel = `${nextTask.fromToken} → ${nextTask.toToken}`;
           await scheduleNextSwapNotification(
