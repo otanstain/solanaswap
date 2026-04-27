@@ -147,11 +147,21 @@ export async function executeSwap(
     task.confirmationStatus = confirmResult.status as SwapTask['confirmationStatus'];
 
     if (confirmResult.status === 'failed') {
-      throw new Error(confirmResult.error ?? 'Transaction failed on-chain');
+      return {
+        success: false,
+        signature,
+        error: confirmResult.error ?? 'Transaction failed on-chain',
+        confirmationStatus: 'failed',
+      };
     }
 
     if (confirmResult.status === 'expired') {
-      throw new Error(confirmResult.error ?? 'Transaction expired before confirmation');
+      return {
+        success: false,
+        signature,
+        error: confirmResult.error ?? 'Transaction expired before confirmation',
+        confirmationStatus: 'expired',
+      };
     }
 
     if (confirmResult.status === 'timeout') {
@@ -269,7 +279,7 @@ export async function runSwapSession(
     } else {
       task.status = result.confirmationStatus === 'timeout' ? 'timeout' : 'failed';
       task.errorMessage = result.error;
-      task.txSignature = result.signature;
+      if (result.signature) task.txSignature = result.signature;
       session.failedToday += 1;
       consecutiveFailures += 1;
 
