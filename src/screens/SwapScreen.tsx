@@ -13,7 +13,7 @@ import { createSession, runSwapSession, abortSession, SwapResult } from '../serv
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
 import { getTokenBalance } from '../services/jupiter';
-import { TOKENS, SWAP_AMOUNT_MIN_USD } from '../constants/tokens';
+import { TOKENS, SWAP_AMOUNT_MIN_USD, SWAP_AMOUNT_MAX_USD } from '../constants/tokens';
 import {
   scheduleNextSwapNotification,
   sendSwapCompletedNotification,
@@ -139,44 +139,13 @@ export default function SwapScreen() {
     ]);
   }, [disconnect, session?.isActive]);
 
-  const handleStartSession = useCallback(async () => {
+  const startSessionWithBalances = useCallback(async (
+    freshBalances: Record<string, number>,
+  ) => {
     if (!publicKey || !settings || !connection) return;
 
     await requestNotificationPermissions();
     await cancelAllNotifications();
-
-    // Fetch fresh balances before generating swap queue
-    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
-    const freshBalances: Record<string, number> = {};
-    const freshBalancesFull: Record<string, { balance: number; balanceUsd: number }> = {};
-    for (const token of tokens) {
-      const result = await getTokenBalance(connection, publicKey, token);
-      freshBalances[token] = result.balanceUsd;
-      freshBalancesFull[token] = result;
-    }
-    setBalances(freshBalancesFull);
-
-    // Check if selected token (or any token) has enough balance
-    if (selectedFromToken !== 'ALL') {
-      const selectedBalance = freshBalances[selectedFromToken] ?? 0;
-      if (selectedBalance * 0.8 < SWAP_AMOUNT_MIN_USD) {
-        Alert.alert(
-          'Insufficient Balance',
-          `${selectedFromToken} balance: $${selectedBalance.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap. Try selecting "ALL" or a different token.`,
-        );
-        return;
-      }
-    } else {
-      const hasAffordableToken = Object.values(freshBalances).some((v) => v * 0.8 >= SWAP_AMOUNT_MIN_USD);
-      if (!hasAffordableToken) {
-        const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
-        Alert.alert(
-          'Insufficient Balance',
-          `No token has enough balance for a swap (min $${SWAP_AMOUNT_MIN_USD}). Total: $${totalBalanceUsd.toFixed(2)}.`,
-        );
-        return;
-      }
-    }
 
     const newSession = createSession(settings.swapsPerDay, {
       preferredFromToken: selectedFromToken,
@@ -232,6 +201,118 @@ export default function SwapScreen() {
       );
     }
   }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances, connection]);
+
+  const handleStartSession = useCallback(async () => {
+    if (!publicKey || !settings || !connection) return;
+
+    setBalancesLoading(true);
+    // Fetch fresh balances
+    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
+    const freshBalances: Record<string, number> = {};
+    const freshBalancesFull: Record<string, { balance: number; balanceUsd: number }> = {};
+    const results = await Promise.all(
+      tokens.map(async (token) => {
+        const result = await getTokenBalance(connection, publicKey, token);
+        return { token, result };
+      }),
+    );
+    for (const { token, result } of results) {
+      freshBalances[token] = result.balanceUsd;
+      freshBalancesFull[token] = result;
+    }
+    setBalances(freshBalancesFull);
+    setBalancesLoading(false);
+
+    // Estimate how many swaps are affordable
+    const GAS_COST_PER_SWAP_USD = 0.01; // ~0.005 SOL per swap at ~$150/SOL
+    const avgSwapUsd = (SWAP_AMOUNT_MIN_USD + SWAP_AMOUNT_MAX_USD) / 2;
+
+    let availableForSwaps: number;
+    let affordableTokens: string[] = [];
+
+    if (selectedFromToken !== 'ALL') {
+      const tokenBal = freshBalances[selectedFromToken] ?? 0;
+      const usable = tokenBal * 0.8; // 20% reserve
+      if (usable < SWAP_AMOUNT_MIN_USD) {
+        Alert.alert(
+          'Insufficient Balance',
+          `${selectedFromToken}: $${tokenBal.toFixed(2)} (usable: $${usable.toFixed(2)}).\nNeed at least $${SWAP_AMOUNT_MIN_USD} per swap.\n\nTry "ALL" or add more funds.`,
+        );
+        return;
+      }
+      availableForSwaps = usable;
+      affordableTokens = [selectedFromToken];
+    } else {
+      // In ALL mode, sum up usable balances of all tokens that can fund at least 1 swap
+      let totalUsable = 0;
+      for (const [token, bal] of Object.entries(freshBalances)) {
+        const usable = bal * 0.8;
+        if (usable >= SWAP_AMOUNT_MIN_USD) {
+          totalUsable += usable;
+          affordableTokens.push(token);
+        }
+      }
+      if (affordableTokens.length === 0) {
+        const totalBal = Object.values(freshBalances).reduce((s, v) => s + v, 0);
+        Alert.alert(
+          'Insufficient Balance',
+          `No token has enough for a swap (min $${SWAP_AMOUNT_MIN_USD}).\nTotal balance: $${totalBal.toFixed(2)}.\n\nAdd more funds to start.`,
+        );
+        return;
+      }
+      availableForSwaps = totalUsable;
+    }
+
+    // Calculate max affordable swaps (considering gas costs from SOL)
+    const solBalUsd = freshBalances['SOL'] ?? 0;
+    const maxSwapsByGas = Math.floor(solBalUsd / GAS_COST_PER_SWAP_USD);
+    const maxSwapsByBalance = Math.floor(availableForSwaps / avgSwapUsd);
+    const estimatedSwaps = Math.min(maxSwapsByGas, maxSwapsByBalance, settings.swapsPerDay);
+    const requestedSwaps = settings.swapsPerDay;
+
+    const totalBalUsd = Object.values(freshBalances).reduce((s, v) => s + v, 0);
+    const estimatedGasCost = (estimatedSwaps * GAS_COST_PER_SWAP_USD).toFixed(2);
+
+    // Build summary message
+    let summaryLines = [
+      `Balance: $${totalBalUsd.toFixed(2)}`,
+      `Tokens available: ${affordableTokens.join(', ')}`,
+      ``,
+      `Requested: ${requestedSwaps} swaps`,
+      `Estimated possible: ${estimatedSwaps} swaps`,
+      `Avg swap: ~$${avgSwapUsd.toFixed(0)}`,
+      `Est. gas cost: ~$${estimatedGasCost}`,
+    ];
+
+    if (estimatedSwaps < requestedSwaps) {
+      if (maxSwapsByGas < maxSwapsByBalance) {
+        summaryLines.push(``, `⚠ Limited by SOL for gas ($${solBalUsd.toFixed(2)})`);
+      } else {
+        summaryLines.push(``, `⚠ Limited by token balance`);
+      }
+    }
+
+    if (estimatedSwaps === 0) {
+      Alert.alert(
+        'Cannot Start Session',
+        summaryLines.join('\n') + '\n\nNot enough balance for any swaps.',
+      );
+      return;
+    }
+
+    // Confirm with user
+    Alert.alert(
+      'Start Session?',
+      summaryLines.join('\n'),
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Start (${estimatedSwaps} swaps)`,
+          onPress: () => startSessionWithBalances(freshBalances),
+        },
+      ],
+    );
+  }, [publicKey, settings, connection, selectedFromToken, startSessionWithBalances]);
 
   const handleStopSession = useCallback(() => {
     Alert.alert('Stop Session', 'Are you sure you want to stop the current session?', [
