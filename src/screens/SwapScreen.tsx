@@ -122,7 +122,7 @@ export default function SwapScreen() {
     // Check if selected token (or any token) has enough balance
     if (selectedFromToken !== 'ALL') {
       const selectedBalance = freshBalances[selectedFromToken] ?? 0;
-      if (selectedBalance < SWAP_AMOUNT_MIN_USD) {
+      if (selectedBalance * 0.8 < SWAP_AMOUNT_MIN_USD) {
         Alert.alert(
           'Insufficient Balance',
           `${selectedFromToken} balance: $${selectedBalance.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap. Try selecting "ALL" or a different token.`,
