@@ -119,14 +119,25 @@ export default function SwapScreen() {
     }
     setBalances(freshBalancesFull);
 
-    // Check if there's any balance to swap
-    const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
-    if (totalBalanceUsd < SWAP_AMOUNT_MIN_USD) {
-      Alert.alert(
-        'Insufficient Balance',
-        `Total balance: $${totalBalanceUsd.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap.`,
-      );
-      return;
+    // Check if selected token (or any token) has enough balance
+    if (selectedFromToken !== 'ALL') {
+      const selectedBalance = freshBalances[selectedFromToken] ?? 0;
+      if (selectedBalance < SWAP_AMOUNT_MIN_USD) {
+        Alert.alert(
+          'Insufficient Balance',
+          `${selectedFromToken} balance: $${selectedBalance.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap. Try selecting "ALL" or a different token.`,
+        );
+        return;
+      }
+    } else {
+      const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
+      if (totalBalanceUsd < SWAP_AMOUNT_MIN_USD) {
+        Alert.alert(
+          'Insufficient Balance',
+          `Total balance: $${totalBalanceUsd.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap.`,
+        );
+        return;
+      }
     }
 
     const newSession = createSession(settings.swapsPerDay, {
