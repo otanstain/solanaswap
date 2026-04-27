@@ -75,7 +75,7 @@ export function generateSwapQueue(count: number, options: SwapQueueOptions = {})
   if (tokenBalancesUsd) {
     const affordable = pairs.filter((p) => {
       const bal = tokenBalancesUsd[p.from] ?? 0;
-      return bal >= SWAP_AMOUNT_MIN_USD;
+      return bal * 0.8 >= SWAP_AMOUNT_MIN_USD;
     });
     if (affordable.length > 0) {
       pairs = affordable;

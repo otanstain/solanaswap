@@ -130,11 +130,12 @@ export default function SwapScreen() {
         return;
       }
     } else {
-      const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
-      if (totalBalanceUsd < SWAP_AMOUNT_MIN_USD) {
+      const hasAffordableToken = Object.values(freshBalances).some((v) => v * 0.8 >= SWAP_AMOUNT_MIN_USD);
+      if (!hasAffordableToken) {
+        const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
         Alert.alert(
           'Insufficient Balance',
-          `Total balance: $${totalBalanceUsd.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap.`,
+          `No token has enough balance for a swap (min $${SWAP_AMOUNT_MIN_USD}). Total: $${totalBalanceUsd.toFixed(2)}.`,
         );
         return;
       }
