@@ -141,13 +141,14 @@ export default function SwapScreen() {
 
   const startSessionWithBalances = useCallback(async (
     freshBalances: Record<string, number>,
+    swapCount: number,
   ) => {
     if (!publicKey || !settings || !connection) return;
 
     await requestNotificationPermissions();
     await cancelAllNotifications();
 
-    const newSession = createSession(settings.swapsPerDay, {
+    const newSession = createSession(swapCount, {
       preferredFromToken: selectedFromToken,
       delayMinMinutes: settings.delayMinMinutes,
       delayMaxMinutes: settings.delayMaxMinutes,
@@ -206,22 +207,27 @@ export default function SwapScreen() {
     if (!publicKey || !settings || !connection) return;
 
     setBalancesLoading(true);
-    // Fetch fresh balances
     const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
     const freshBalances: Record<string, number> = {};
     const freshBalancesFull: Record<string, { balance: number; balanceUsd: number }> = {};
-    const results = await Promise.all(
-      tokens.map(async (token) => {
-        const result = await getTokenBalance(connection, publicKey, token);
-        return { token, result };
-      }),
-    );
-    for (const { token, result } of results) {
-      freshBalances[token] = result.balanceUsd;
-      freshBalancesFull[token] = result;
+    try {
+      const results = await Promise.all(
+        tokens.map(async (token) => {
+          const result = await getTokenBalance(connection, publicKey, token);
+          return { token, result };
+        }),
+      );
+      for (const { token, result } of results) {
+        freshBalances[token] = result.balanceUsd;
+        freshBalancesFull[token] = result;
+      }
+      setBalances(freshBalancesFull);
+    } catch (err) {
+      Alert.alert('Error', `Failed to fetch balances: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      return;
+    } finally {
+      setBalancesLoading(false);
     }
-    setBalances(freshBalancesFull);
-    setBalancesLoading(false);
 
     // Estimate how many swaps are affordable
     const GAS_COST_PER_SWAP_USD = 0.01; // ~0.005 SOL per swap at ~$150/SOL
@@ -308,7 +314,7 @@ export default function SwapScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: `Start (${estimatedSwaps} swaps)`,
-          onPress: () => startSessionWithBalances(freshBalances),
+          onPress: () => startSessionWithBalances(freshBalances, estimatedSwaps),
         },
       ],
     );

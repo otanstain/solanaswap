@@ -1,4 +1,4 @@
-import { VersionedTransaction, PublicKey } from '@solana/web3.js';
+import { VersionedTransaction } from '@solana/web3.js';
 import { QuoteResponse } from './jupiter';
 import { TOKENS } from '../constants/tokens';
 
@@ -87,6 +87,11 @@ export function validateQuote(
   }
   if (!knownMints.includes(quote.outputMint)) {
     errors.push(`Unknown output mint: ${quote.outputMint}`);
+  }
+
+  // 6. Reject excessive route hops (>4 hops increases MEV surface)
+  if (quote.routePlan && quote.routePlan.length > 4) {
+    warnings.push(`Complex route with ${quote.routePlan.length} hops — increased MEV risk`);
   }
 
   return {

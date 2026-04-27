@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   transact,
   Web3MobileWallet,
@@ -18,7 +18,7 @@ export function useMobileWallet() {
     deauthorizeSession,
   } = useAuthorization();
 
-  const connection = new Connection(RPC_ENDPOINT, 'confirmed');
+  const connection = useMemo(() => new Connection(RPC_ENDPOINT, 'confirmed'), []);
 
   const connect = useCallback(async () => {
     return await transact(async (wallet: Web3MobileWallet) => {

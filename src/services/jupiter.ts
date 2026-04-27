@@ -174,18 +174,28 @@ export async function getTokenPrice(tokenSymbol: string): Promise<number> {
 
   if (tokenSymbol === 'USDC' || tokenSymbol === 'USDT') return 1;
 
-  try {
-    const response = await fetchWithRetry(
-      `https://api.jup.ag/price/v2?ids=${tokenInfo.mint.toBase58()}`,
-      undefined,
-      2,
-    );
-    const data = await response.json();
-    const priceData = data.data[tokenInfo.mint.toBase58()];
-    return priceData ? parseFloat(priceData.price) : 0;
-  } catch {
-    return 0;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+      const response = await fetchWithRetry(
+        `https://api.jup.ag/price/v2?ids=${tokenInfo.mint.toBase58()}`,
+        undefined,
+        2,
+      );
+      const data = await response.json();
+      const priceData = data.data[tokenInfo.mint.toBase58()];
+      const price = priceData ? parseFloat(priceData.price) : 0;
+      if (price > 0) return price;
+      lastError = new Error(`Price returned 0 for ${tokenSymbol}`);
+    } catch (err) {
+      lastError = err;
+    }
   }
+
+  throw new Error(`Failed to get price for ${tokenSymbol}: ${lastError instanceof Error ? lastError.message : 'unknown'}`);
 }
 
 export function usdToTokenAmount(

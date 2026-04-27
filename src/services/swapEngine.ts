@@ -12,7 +12,7 @@ import {
 } from './jupiter';
 import { TOKENS, RPC_ENDPOINT } from '../constants/tokens';
 import { updateStatsAfterSwap } from './storage';
-import { validateQuote, validateTransaction } from './security';
+import { validateQuote, validateTransaction, validateSwapOutput } from './security';
 
 let sessionAbortController: AbortController | null = null;
 
@@ -138,6 +138,9 @@ export async function executeSwap(
     if (!txCheck.safe) {
       throw new Error(`Security: ${txCheck.errors.join('; ')}`);
     }
+    if (txCheck.warnings.length > 0) {
+      console.warn('Transaction warnings:', txCheck.warnings.join('; '));
+    }
 
     onStatusChange?.('signing');
     const signature = await signAndSend(swapTx as never);
@@ -186,7 +189,7 @@ export async function executeSwap(
       };
     }
 
-    // Transaction confirmed/finalized — get fee info
+    // Transaction confirmed/finalized — get fee info and validate output
     let gasUsed = 5000;
     try {
       const txInfo = await connection.getTransaction(signature, {
@@ -194,6 +197,26 @@ export async function executeSwap(
       });
       if (txInfo?.meta?.fee) {
         gasUsed = txInfo.meta.fee;
+      }
+
+      // Post-swap: check if output matched quote (detect sandwich attacks)
+      if (txInfo?.meta) {
+        const toTokenInfo = TOKENS[task.toToken];
+        if (toTokenInfo) {
+          const postBalances = txInfo.meta.postTokenBalances ?? [];
+          const preBalances = txInfo.meta.preTokenBalances ?? [];
+          const toMint = toTokenInfo.mint.toBase58();
+          const postBal = postBalances.find((b) => b.mint === toMint);
+          const preBal = preBalances.find((b) => b.mint === toMint);
+          if (postBal && preBal) {
+            const received = (postBal.uiTokenAmount.uiAmount ?? 0) - (preBal.uiTokenAmount.uiAmount ?? 0);
+            const receivedLamports = Math.floor(received * Math.pow(10, toTokenInfo.decimals));
+            const outputCheck = validateSwapOutput(quote.outAmount, receivedLamports);
+            if (outputCheck.warnings.length > 0) {
+              console.warn('Post-swap output check:', outputCheck.warnings.join('; '));
+            }
+          }
+        }
       }
     } catch {
       // Use default gas estimate if tx info fetch fails
@@ -242,17 +265,20 @@ export async function runSwapSession(
       session.nextSwapTime = Date.now() + task.delayMs;
       onUpdate({ ...session });
 
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(resolve, task.delayMs);
-        signal.addEventListener('abort', () => {
-          clearTimeout(timeout);
-          reject(new Error('Aborted'));
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(resolve, task.delayMs);
+          const onAbort = () => {
+            clearTimeout(timeout);
+            reject(new Error('Aborted'));
+          };
+          signal.addEventListener('abort', onAbort, { once: true });
         });
-      }).catch(() => {
+      } catch {
         session.isActive = false;
         onUpdate({ ...session });
         return;
-      });
+      }
     }
 
     if (signal.aborted) {
