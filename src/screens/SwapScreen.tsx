@@ -9,9 +9,11 @@ import {
 } from 'react-native';
 import { SessionState, SwapTask, AppSettings } from '../types';
 import { useMobileWallet } from '../hooks/useMobileWallet';
-import { createSession, runSwapSession, abortSession } from '../services/swapEngine';
+import { createSession, runSwapSession, abortSession, SwapResult } from '../services/swapEngine';
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
+import { getTokenBalance } from '../services/jupiter';
+import { TOKENS } from '../constants/tokens';
 import {
   scheduleNextSwapNotification,
   sendSwapCompletedNotification,
@@ -19,6 +21,8 @@ import {
   cancelAllNotifications,
   requestNotificationPermissions,
 } from '../services/notifications';
+
+const FROM_TOKEN_OPTIONS = ['ALL', ...Object.keys(TOKENS)];
 
 export default function SwapScreen() {
   const {
@@ -32,11 +36,39 @@ export default function SwapScreen() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [countdown, setCountdown] = useState<string>('');
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [balances, setBalances] = useState<Record<string, { balance: number; balanceUsd: number }>>({
+    SOL: { balance: 0, balanceUsd: 0 },
+    USDC: { balance: 0, balanceUsd: 0 },
+    USDT: { balance: 0, balanceUsd: 0 },
+    SKR: { balance: 0, balanceUsd: 0 },
+  });
+  const [selectedFromToken, setSelectedFromToken] = useState<string>('ALL');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    loadSettings().then(setSettings);
+    loadSettings().then((loaded) => {
+      setSettings(loaded);
+      if (loaded.preferredFromToken) {
+        setSelectedFromToken(loaded.preferredFromToken);
+      }
+    });
   }, []);
+
+  const fetchBalances = useCallback(async () => {
+    if (!publicKey || !connection) return;
+    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
+    const results: Record<string, { balance: number; balanceUsd: number }> = {};
+    for (const token of tokens) {
+      results[token] = await getTokenBalance(connection, publicKey, token);
+    }
+    setBalances(results);
+  }, [publicKey, connection]);
+
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchBalances();
+    }
+  }, [isAuthorized, fetchBalances]);
 
   // Countdown timer
   useEffect(() => {
@@ -76,7 +108,11 @@ export default function SwapScreen() {
     await requestNotificationPermissions();
     await cancelAllNotifications();
 
-    const newSession = createSession(settings.swapsPerDay);
+    const newSession = createSession(settings.swapsPerDay, {
+      preferredFromToken: selectedFromToken,
+      delayMinMinutes: settings.delayMinMinutes,
+      delayMaxMinutes: settings.delayMaxMinutes,
+    });
     setSession(newSession);
 
     await runSwapSession(
@@ -86,7 +122,7 @@ export default function SwapScreen() {
       (updated) => {
         setSession({ ...updated });
       },
-      async (task: SwapTask, result) => {
+      async (task: SwapTask, result: SwapResult) => {
         const totalSwaps = newSession.swapQueue.length;
         const completed = newSession.completedToday;
         const label = `${task.fromToken} → ${task.toToken}`;
@@ -100,9 +136,12 @@ export default function SwapScreen() {
           );
         }
 
-        // Schedule notification for next swap
+        // Refresh balances after each swap
+        fetchBalances();
+
+        // Schedule notification for next swap (skip if session stopped)
         const nextIdx = newSession.currentSwapIndex + 1;
-        if (nextIdx < newSession.swapQueue.length && settings.enableNotifications) {
+        if (newSession.isActive && nextIdx < newSession.swapQueue.length && settings.enableNotifications) {
           const nextTask = newSession.swapQueue[nextIdx];
           const nextLabel = `${nextTask.fromToken} → ${nextTask.toToken}`;
           await scheduleNextSwapNotification(
@@ -121,7 +160,7 @@ export default function SwapScreen() {
         newSession.totalGasSpent / 1e9,
       );
     }
-  }, [publicKey, settings, signAndSendTransaction]);
+  }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances]);
 
   const handleStopSession = useCallback(() => {
     Alert.alert('Stop Session', 'Are you sure you want to stop the current session?', [
@@ -151,6 +190,7 @@ export default function SwapScreen() {
           isCurrent && styles.swapItemActive,
           item.status === 'completed' && styles.swapItemCompleted,
           item.status === 'failed' && styles.swapItemFailed,
+          item.status === 'timeout' && styles.swapItemTimeout,
         ]}
       >
         <View style={styles.swapItemLeft}>
@@ -170,17 +210,28 @@ export default function SwapScreen() {
               styles.swapStatus,
               item.status === 'completed' && styles.statusCompleted,
               item.status === 'failed' && styles.statusFailed,
+              item.status === 'timeout' && styles.statusTimeout,
               item.status === 'executing' && styles.statusExecuting,
+              item.status === 'confirming' && styles.statusConfirming,
             ]}
           >
             {item.status === 'pending'
               ? 'Pending'
               : item.status === 'executing'
               ? 'Signing...'
+              : item.status === 'confirming'
+              ? 'Confirming...'
               : item.status === 'completed'
-              ? 'Done'
+              ? (item.confirmationStatus === 'finalized' ? 'Finalized' : 'Confirmed')
+              : item.status === 'timeout'
+              ? 'Timeout'
               : 'Failed'}
           </Text>
+          {item.txSignature && (
+            <Text style={styles.txSignatureText}>
+              {item.txSignature.slice(0, 8)}...
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -214,6 +265,46 @@ export default function SwapScreen() {
         </Text>
       </View>
 
+      {/* Balances */}
+      <View style={styles.balancesBar}>
+        {Object.entries(balances).map(([token, { balance }]) => (
+          <View key={token} style={styles.balanceItem}>
+            <Text style={styles.balanceTokenLabel}>{token}</Text>
+            <Text style={styles.balanceTokenValue}>
+              {token === 'SOL' ? balance.toFixed(4) : balance.toFixed(2)}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Token Selector */}
+      {(!session || !session.isActive) && (
+        <View style={styles.tokenSelectorContainer}>
+          <Text style={styles.tokenSelectorLabel}>Swap From:</Text>
+          <View style={styles.tokenSelector}>
+            {FROM_TOKEN_OPTIONS.map((token) => (
+              <TouchableOpacity
+                key={token}
+                style={[
+                  styles.tokenBtn,
+                  selectedFromToken === token && styles.tokenBtnActive,
+                ]}
+                onPress={() => setSelectedFromToken(token)}
+              >
+                <Text
+                  style={[
+                    styles.tokenBtnText,
+                    selectedFromToken === token && styles.tokenBtnTextActive,
+                  ]}
+                >
+                  {token}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
       {/* Status Bar */}
       {session && (
         <View style={styles.statusBar}>
@@ -240,20 +331,38 @@ export default function SwapScreen() {
         </View>
       )}
 
-      {/* Next Swap Timer */}
+      {/* Next Swap Timer / Status */}
       {session?.isActive && currentSwap && (
         <View style={styles.timerCard}>
-          <Text style={styles.timerLabel}>Next Swap</Text>
+          <Text style={styles.timerLabel}>
+            {currentSwap.status === 'confirming' ? 'Confirming Transaction' :
+             currentSwap.status === 'executing' ? 'Executing Swap' : 'Next Swap'}
+          </Text>
           <Text style={styles.timerPair}>
             {currentSwap.fromToken} → {currentSwap.toToken}
           </Text>
           <Text style={styles.timerAmount}>
             {formatUsd(currentSwap.amountUsd)}
           </Text>
-          <Text style={styles.timerCountdown}>{countdown}</Text>
+          {currentSwap.status === 'confirming' ? (
+            <Text style={[styles.timerCountdown, { color: '#FFA500', fontSize: 20 }]}>
+              Waiting for confirmation...
+            </Text>
+          ) : currentSwap.status === 'executing' ? (
+            <Text style={[styles.timerCountdown, { color: '#9945FF', fontSize: 20 }]}>
+              Sign in wallet...
+            </Text>
+          ) : (
+            <Text style={styles.timerCountdown}>{countdown}</Text>
+          )}
           <Text style={styles.timerSlippage}>
             Slippage: {(currentSwap.slippageBps / 100).toFixed(1)}%
           </Text>
+          {currentSwap.txSignature && currentSwap.status !== 'completed' && (
+            <Text style={[styles.timerSlippage, { fontFamily: 'monospace', marginTop: 4 }]}>
+              TX: {currentSwap.txSignature.slice(0, 12)}...
+            </Text>
+          )}
         </View>
       )}
 
@@ -340,6 +449,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
+  },
+  tokenSelectorContainer: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+  },
+  tokenSelectorLabel: {
+    color: '#888',
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  tokenSelector: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  tokenBtn: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1a1a2e',
+  },
+  tokenBtnActive: {
+    borderColor: '#14F195',
+    backgroundColor: '#1a3a2e',
+  },
+  tokenBtnText: {
+    color: '#888',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tokenBtnTextActive: {
+    color: '#14F195',
+  },
+  balancesBar: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  balanceItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  balanceTokenLabel: {
+    color: '#888',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  balanceTokenValue: {
+    color: '#14F195',
+    fontSize: 13,
+    fontWeight: '600',
   },
   statusBar: {
     flexDirection: 'row',
@@ -431,6 +596,10 @@ const styles = StyleSheet.create({
     borderLeftColor: '#ff4444',
     opacity: 0.7,
   },
+  swapItemTimeout: {
+    borderLeftColor: '#FF8C00',
+    opacity: 0.7,
+  },
   swapItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -468,6 +637,18 @@ const styles = StyleSheet.create({
   },
   statusExecuting: {
     color: '#9945FF',
+  },
+  statusConfirming: {
+    color: '#FFA500',
+  },
+  statusTimeout: {
+    color: '#FF8C00',
+  },
+  txSignatureText: {
+    color: '#555',
+    fontSize: 10,
+    marginTop: 2,
+    fontFamily: 'monospace',
   },
   footer: {
     padding: 20,

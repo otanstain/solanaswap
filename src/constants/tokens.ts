@@ -30,10 +30,10 @@ export const TOKENS: Record<string, TokenInfo> = {
     decimals: 6,
     coingeckoId: 'tether',
   },
-  SCR: {
-    symbol: 'SCR',
+  SKR: {
+    symbol: 'SKR',
     name: 'Seeker',
-    mint: new PublicKey('SCRLetnGd4PqEzeMq7Kcppbv6HDfj3tLZosMfqhGivb'),
+    mint: new PublicKey('SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3'),
     decimals: 9,
   },
 };
@@ -51,12 +51,15 @@ export const TRADING_PAIRS: TradingPair[] = [
   { from: 'USDT', to: 'SOL', label: 'USDT → SOL' },
   { from: 'USDC', to: 'USDT', label: 'USDC → USDT' },
   { from: 'USDT', to: 'USDC', label: 'USDT → USDC' },
-  { from: 'SOL', to: 'SCR', label: 'SOL → SCR' },
-  { from: 'SCR', to: 'SOL', label: 'SCR → SOL' },
+  { from: 'SOL', to: 'SKR', label: 'SOL → SKR' },
+  { from: 'SKR', to: 'SOL', label: 'SKR → SOL' },
 ];
 
 export const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 export const JUPITER_API_URL = 'https://quote-api.jup.ag/v6';
+
+export const PLATFORM_FEE_BPS = 25; // 0.25%
+export const PLATFORM_FEE_ACCOUNT = 'J6X5C1QmsENS4wKa1rQz1cxFxGN5msNK4NYNFeHdPdT8';
 
 export const SWAP_AMOUNT_MIN_USD = 1;
 export const SWAP_AMOUNT_MAX_USD = 15;
@@ -66,4 +69,4 @@ export const SLIPPAGE_MIN_BPS = 50;   // 0.5%
 export const SLIPPAGE_MAX_BPS = 150;  // 1.5%
 export const DEFAULT_SWAPS_PER_DAY = 50;
 export const MAX_SWAPS_PER_DAY = 100;
-export const MIN_SWAPS_PER_DAY = 50;
+export const MIN_SWAPS_PER_DAY = 1;

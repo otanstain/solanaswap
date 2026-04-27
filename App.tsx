@@ -18,7 +18,7 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   const icons: Record<string, string> = {
     Swap: '⟲',
     Stats: '◎',
-    SCR: '◆',
+    SKR: '◆',
     Settings: '⚙',
   };
 
@@ -75,7 +75,7 @@ export default function App() {
         >
           <Tab.Screen name="Swap" component={SwapScreen} />
           <Tab.Screen name="Stats" component={StatsScreen} />
-          <Tab.Screen name="SCR" component={StakeScreen} />
+          <Tab.Screen name="SKR" component={StakeScreen} />
           <Tab.Screen name="Settings" component={SettingsScreen} />
         </Tab.Navigator>
       </NavigationContainer>

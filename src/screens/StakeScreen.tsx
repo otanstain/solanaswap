@@ -30,8 +30,8 @@ export default function StakeScreen() {
       const sol = await connection.getBalance(publicKey);
       setSolBalance(sol / LAMPORTS_PER_SOL);
 
-      // Get SCR token balance
-      const scrMint = TOKENS.SCR.mint;
+      // Get SKR token balance
+      const scrMint = TOKENS.SKR.mint;
       const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
         mint: scrMint,
       });
@@ -56,7 +56,7 @@ export default function StakeScreen() {
     }
   }, [connect]);
 
-  const handleBuySCR = useCallback(async () => {
+  const handleBuySKR = useCallback(async () => {
     if (!publicKey || !amount) return;
 
     const solAmount = parseFloat(amount);
@@ -69,11 +69,13 @@ export default function StakeScreen() {
     try {
       const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
 
-      const quote = await getQuote('SOL', 'SCR', lamports, 100);
-      const swapTx = await getSwapTransaction(quote, publicKey.toBase58());
+      const quote = await getQuote('SOL', 'SKR', lamports, 100);
+      const swapTx = await getSwapTransaction(quote, publicKey.toBase58(), {
+        fromToken: 'SOL', toToken: 'SKR', amountLamports: lamports, slippageBps: 100,
+      });
 
       const signature = await signAndSendTransaction(swapTx);
-      Alert.alert('Success', `Bought SCR!\nTx: ${String(signature).slice(0, 20)}...`);
+      Alert.alert('Success', `Bought SKR!\nTx: ${String(signature).slice(0, 20)}...`);
 
       setAmount('');
       fetchBalances();
@@ -94,8 +96,8 @@ export default function StakeScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.center}>
-          <Text style={styles.title}>SCR Staking</Text>
-          <Text style={styles.subtitle}>Connect wallet to manage SCR</Text>
+          <Text style={styles.title}>SKR Staking</Text>
+          <Text style={styles.subtitle}>Connect wallet to manage SKR</Text>
           <TouchableOpacity style={styles.connectBtn} onPress={handleConnect}>
             <Text style={styles.connectBtnText}>Connect Wallet</Text>
           </TouchableOpacity>
@@ -106,7 +108,7 @@ export default function StakeScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>SCR Token</Text>
+      <Text style={styles.title}>SKR Token</Text>
 
       {/* Balances */}
       <View style={styles.balanceCard}>
@@ -118,16 +120,16 @@ export default function StakeScreen() {
         </View>
         <View style={styles.divider} />
         <View style={styles.balanceRow}>
-          <Text style={styles.balanceLabel}>SCR Balance</Text>
+          <Text style={styles.balanceLabel}>SKR Balance</Text>
           <Text style={styles.balanceValue}>
-            {scrBalance !== null ? `${scrBalance.toFixed(2)} SCR` : '...'}
+            {scrBalance !== null ? `${scrBalance.toFixed(2)} SKR` : '...'}
           </Text>
         </View>
       </View>
 
-      {/* Buy SCR */}
+      {/* Buy SKR */}
       <View style={styles.actionCard}>
-        <Text style={styles.cardTitle}>Buy SCR with SOL</Text>
+        <Text style={styles.cardTitle}>Buy SKR with SOL</Text>
         <TextInput
           style={styles.input}
           placeholder="Amount in SOL"
@@ -138,13 +140,13 @@ export default function StakeScreen() {
         />
         <TouchableOpacity
           style={[styles.buyBtn, loading && styles.buyBtnDisabled]}
-          onPress={handleBuySCR}
+          onPress={handleBuySKR}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#0a0a0a" />
           ) : (
-            <Text style={styles.buyBtnText}>Buy SCR</Text>
+            <Text style={styles.buyBtnText}>Buy SKR</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -156,10 +158,10 @@ export default function StakeScreen() {
 
       {/* Info */}
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>About SCR Staking</Text>
+        <Text style={styles.infoTitle}>About SKR Staking</Text>
         <Text style={styles.infoText}>
-          SCR is the Seeker token. Staking SCR helps secure the network and earn
-          rewards. Use this screen to buy SCR tokens with SOL via Jupiter.
+          SKR is the Seeker token. Staking SKR helps secure the network and earn
+          rewards. Use this screen to buy SKR tokens with SOL via Jupiter.
         </Text>
         <Text style={styles.infoText}>
           For full staking functionality, visit the official Seeker staking portal.
