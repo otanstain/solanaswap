@@ -132,18 +132,10 @@ export function validateTransaction(tx: VersionedTransaction): SecurityCheckResu
     }
 
     // Block if unknown programs found in static keys (potential malicious injection)
+    // programIdIndex beyond static keys returns undefined and is skipped,
+    // so anything here is definitively from static keys
     if (unknownPrograms.length > 0) {
-      // v0 transactions may have lookup-table-resolved programs that appear unknown
-      // Only error if there are no lookup tables (legacy tx with unknown programs)
-      const hasLookupTables = 'addressTableLookups' in message
-        && Array.isArray((message as { addressTableLookups?: unknown[] }).addressTableLookups)
-        && ((message as { addressTableLookups: unknown[] }).addressTableLookups).length > 0;
-
-      if (!hasLookupTables) {
-        errors.push(`Unknown programs in transaction: ${unknownPrograms.join(', ')}`);
-      } else {
-        warnings.push(`Unverified programs (may be from lookup tables): ${unknownPrograms.slice(0, 3).join(', ')}`);
-      }
+      errors.push(`Unknown programs in transaction: ${unknownPrograms.join(', ')}`);
     }
 
     if (!hasJupiter) {
@@ -162,7 +154,7 @@ export function validateTransaction(tx: VersionedTransaction): SecurityCheckResu
       warnings.push(`Large transaction size: ${serialized.length} bytes`);
     }
   } catch (err) {
-    warnings.push(`Transaction validation error: ${err instanceof Error ? err.message : 'unknown'}`);
+    errors.push(`Transaction validation failed: ${err instanceof Error ? err.message : 'unknown'}`);
   }
 
   return {
