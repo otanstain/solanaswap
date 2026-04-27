@@ -114,13 +114,35 @@ export function validateTransaction(tx: VersionedTransaction): SecurityCheckResu
     const message = tx.message;
     const accountKeys = message.staticAccountKeys.map((k) => k.toBase58());
 
-    // Check lookup tables for additional keys (v0 transactions)
+    // Validate program IDs used by each instruction against allowlist
     let hasJupiter = false;
+    const unknownPrograms: string[] = [];
 
-    for (const key of accountKeys) {
-      if (JUPITER_PROGRAM_IDS.includes(key)) {
+    for (const ix of message.compiledInstructions) {
+      const programId = accountKeys[ix.programIdIndex];
+      if (!programId) continue;
+
+      if (JUPITER_PROGRAM_IDS.includes(programId)) {
         hasJupiter = true;
-        break;
+      }
+
+      if (!allSafePrograms.includes(programId)) {
+        unknownPrograms.push(programId);
+      }
+    }
+
+    // Block if unknown programs found in static keys (potential malicious injection)
+    if (unknownPrograms.length > 0) {
+      // v0 transactions may have lookup-table-resolved programs that appear unknown
+      // Only error if there are no lookup tables (legacy tx with unknown programs)
+      const hasLookupTables = 'addressTableLookups' in message
+        && Array.isArray((message as { addressTableLookups?: unknown[] }).addressTableLookups)
+        && ((message as { addressTableLookups: unknown[] }).addressTableLookups).length > 0;
+
+      if (!hasLookupTables) {
+        errors.push(`Unknown programs in transaction: ${unknownPrograms.join(', ')}`);
+      } else {
+        warnings.push(`Unverified programs (may be from lookup tables): ${unknownPrograms.slice(0, 3).join(', ')}`);
       }
     }
 
