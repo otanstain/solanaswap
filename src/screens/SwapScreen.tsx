@@ -13,7 +13,7 @@ import { createSession, runSwapSession, abortSession, SwapResult } from '../serv
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
 import { getTokenBalance } from '../services/jupiter';
-import { TOKENS } from '../constants/tokens';
+import { TOKENS, SWAP_AMOUNT_MIN_USD } from '../constants/tokens';
 import {
   scheduleNextSwapNotification,
   sendSwapCompletedNotification,
@@ -103,15 +103,37 @@ export default function SwapScreen() {
   }, [connect]);
 
   const handleStartSession = useCallback(async () => {
-    if (!publicKey || !settings) return;
+    if (!publicKey || !settings || !connection) return;
 
     await requestNotificationPermissions();
     await cancelAllNotifications();
+
+    // Fetch fresh balances before generating swap queue
+    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
+    const freshBalances: Record<string, number> = {};
+    const freshBalancesFull: Record<string, { balance: number; balanceUsd: number }> = {};
+    for (const token of tokens) {
+      const result = await getTokenBalance(connection, publicKey, token);
+      freshBalances[token] = result.balanceUsd;
+      freshBalancesFull[token] = result;
+    }
+    setBalances(freshBalancesFull);
+
+    // Check if there's any balance to swap
+    const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
+    if (totalBalanceUsd < SWAP_AMOUNT_MIN_USD) {
+      Alert.alert(
+        'Insufficient Balance',
+        `Total balance: $${totalBalanceUsd.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap.`,
+      );
+      return;
+    }
 
     const newSession = createSession(settings.swapsPerDay, {
       preferredFromToken: selectedFromToken,
       delayMinMinutes: settings.delayMinMinutes,
       delayMaxMinutes: settings.delayMaxMinutes,
+      tokenBalancesUsd: freshBalances,
     });
     setSession(newSession);
 
@@ -160,7 +182,7 @@ export default function SwapScreen() {
         newSession.totalGasSpent / 1e9,
       );
     }
-  }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances]);
+  }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances, connection]);
 
   const handleStopSession = useCallback(() => {
     Alert.alert('Stop Session', 'Are you sure you want to stop the current session?', [

@@ -54,6 +54,7 @@ export interface SwapQueueOptions {
   preferredFromToken?: string;
   delayMinMinutes?: number;
   delayMaxMinutes?: number;
+  tokenBalancesUsd?: Record<string, number>;
 }
 
 export function generateSwapQueue(count: number, options: SwapQueueOptions = {}): Array<{
@@ -63,21 +64,46 @@ export function generateSwapQueue(count: number, options: SwapQueueOptions = {})
   slippageBps: number;
   delayMs: number;
 }> {
-  const { preferredFromToken = 'ALL', delayMinMinutes, delayMaxMinutes } = options;
+  const { preferredFromToken = 'ALL', delayMinMinutes, delayMaxMinutes, tokenBalancesUsd } = options;
   let pairs = TRADING_PAIRS;
   if (preferredFromToken !== 'ALL') {
     pairs = TRADING_PAIRS.filter((p) => p.from === preferredFromToken);
     if (pairs.length === 0) pairs = TRADING_PAIRS;
   }
+
+  // Filter out pairs where the from-token has zero balance
+  if (tokenBalancesUsd) {
+    const affordable = pairs.filter((p) => {
+      const bal = tokenBalancesUsd[p.from] ?? 0;
+      return bal >= SWAP_AMOUNT_MIN_USD;
+    });
+    if (affordable.length > 0) {
+      pairs = affordable;
+    }
+  }
+
   const shuffledPairs = shuffleArray(pairs);
   const queue = [];
 
   for (let i = 0; i < count; i++) {
     const pair = shuffledPairs[i % shuffledPairs.length];
+
+    // Cap swap amount to available balance of from-token
+    let maxUsd = SWAP_AMOUNT_MAX_USD;
+    if (tokenBalancesUsd) {
+      const available = tokenBalancesUsd[pair.from] ?? 0;
+      // Reserve 20% of balance for gas/other swaps
+      maxUsd = Math.min(SWAP_AMOUNT_MAX_USD, available * 0.8);
+    }
+    const minUsd = Math.min(SWAP_AMOUNT_MIN_USD, maxUsd);
+    const amountUsd = maxUsd <= minUsd
+      ? Math.round(minUsd * 100) / 100
+      : Math.round(randomInRange(minUsd, maxUsd) * 100) / 100;
+
     queue.push({
       fromToken: pair.from,
       toToken: pair.to,
-      amountUsd: randomSwapAmountUsd(),
+      amountUsd,
       slippageBps: randomSlippageBps(),
       delayMs: i === 0 ? 0 : randomDelayMs(delayMinMinutes, delayMaxMinutes),
     });
