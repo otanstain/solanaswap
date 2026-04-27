@@ -88,6 +88,7 @@ export async function getQuote(
     slippageBps: slippageBps.toString(),
     onlyDirectRoutes: 'false',
     asLegacyTransaction: 'false',
+    maxAccounts: '64', // Limit accounts to reduce MEV attack surface
   });
 
   if (includePlatformFee) {

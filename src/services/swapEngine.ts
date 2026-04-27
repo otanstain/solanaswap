@@ -12,6 +12,7 @@ import {
 } from './jupiter';
 import { TOKENS, RPC_ENDPOINT } from '../constants/tokens';
 import { updateStatsAfterSwap } from './storage';
+import { validateQuote, validateTransaction } from './security';
 
 let sessionAbortController: AbortController | null = null;
 
@@ -119,12 +120,24 @@ export async function executeSwap(
       task.slippageBps,
     );
 
+    // Security: validate quote before proceeding
+    const quoteCheck = validateQuote(quote, amountLamports, task.slippageBps);
+    if (!quoteCheck.safe) {
+      throw new Error(`Security: ${quoteCheck.errors.join('; ')}`);
+    }
+
     onStatusChange?.('building_tx');
     const swapTx = await getSwapTransaction(
       quote,
       userPublicKey.toBase58(),
       { fromToken: task.fromToken, toToken: task.toToken, amountLamports, slippageBps: task.slippageBps },
     );
+
+    // Security: validate transaction before signing
+    const txCheck = validateTransaction(swapTx);
+    if (!txCheck.safe) {
+      throw new Error(`Security: ${txCheck.errors.join('; ')}`);
+    }
 
     onStatusChange?.('signing');
     const signature = await signAndSend(swapTx as never);
