@@ -206,29 +206,42 @@ export async function getTokenBalance(
   const tokenInfo = TOKENS[tokenSymbol];
   if (!tokenInfo) return { balance: 0, balanceUsd: 0 };
 
-  try {
-    let balance: number;
-
-    if (tokenSymbol === 'SOL') {
-      const lamports = await connection.getBalance(walletPubkey);
-      balance = lamports / Math.pow(10, tokenInfo.decimals);
-    } else {
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-        walletPubkey,
-        { mint: tokenInfo.mint },
-      );
-      if (tokenAccounts.value.length > 0) {
-        balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0;
-      } else {
-        balance = 0;
+  // Retry up to 3 times with backoff — public RPC is often rate-limited
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
       }
-    }
 
-    const price = await getTokenPrice(tokenSymbol);
-    return { balance, balanceUsd: balance * price };
-  } catch {
-    return { balance: 0, balanceUsd: 0 };
+      let balance: number;
+
+      if (tokenSymbol === 'SOL') {
+        const lamports = await connection.getBalance(walletPubkey, 'confirmed');
+        balance = lamports / Math.pow(10, tokenInfo.decimals);
+      } else {
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+          walletPubkey,
+          { mint: tokenInfo.mint },
+          'confirmed',
+        );
+        if (tokenAccounts.value.length > 0) {
+          balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0;
+        } else {
+          balance = 0;
+        }
+      }
+
+      const price = await getTokenPrice(tokenSymbol);
+      return { balance, balanceUsd: balance * price };
+    } catch (err) {
+      lastError = err;
+      console.warn(`Balance fetch attempt ${attempt + 1}/3 for ${tokenSymbol} failed:`, err);
+    }
   }
+
+  console.error(`Failed to fetch ${tokenSymbol} balance after 3 attempts:`, lastError);
+  return { balance: 0, balanceUsd: 0 };
 }
 
 export interface TxConfirmationResult {

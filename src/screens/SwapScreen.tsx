@@ -29,6 +29,7 @@ export default function SwapScreen() {
     publicKey,
     isAuthorized,
     connect,
+    disconnect,
     signAndSendTransaction,
     connection,
   } = useMobileWallet();
@@ -43,6 +44,7 @@ export default function SwapScreen() {
     SKR: { balance: 0, balanceUsd: 0 },
   });
   const [selectedFromToken, setSelectedFromToken] = useState<string>('ALL');
+  const [balancesLoading, setBalancesLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -56,12 +58,19 @@ export default function SwapScreen() {
 
   const fetchBalances = useCallback(async () => {
     if (!publicKey || !connection) return;
-    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
-    const results: Record<string, { balance: number; balanceUsd: number }> = {};
-    for (const token of tokens) {
-      results[token] = await getTokenBalance(connection, publicKey, token);
+    setBalancesLoading(true);
+    try {
+      const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
+      const results = await Promise.all(
+        tokens.map(async (token) => {
+          const result = await getTokenBalance(connection, publicKey, token);
+          return [token, result] as const;
+        }),
+      );
+      setBalances(Object.fromEntries(results));
+    } finally {
+      setBalancesLoading(false);
     }
-    setBalances(results);
   }, [publicKey, connection]);
 
   useEffect(() => {
@@ -101,6 +110,34 @@ export default function SwapScreen() {
       Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Unknown error');
     }
   }, [connect]);
+
+  const handleDisconnect = useCallback(async () => {
+    Alert.alert('Disconnect Wallet', 'Are you sure you want to disconnect?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Disconnect',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            if (session?.isActive) {
+              abortSession();
+              await cancelAllNotifications();
+            }
+            await disconnect();
+            setSession(null);
+            setBalances({
+              SOL: { balance: 0, balanceUsd: 0 },
+              USDC: { balance: 0, balanceUsd: 0 },
+              USDT: { balance: 0, balanceUsd: 0 },
+              SKR: { balance: 0, balanceUsd: 0 },
+            });
+          } catch (err) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to disconnect');
+          }
+        },
+      },
+    ]);
+  }, [disconnect, session?.isActive]);
 
   const handleStartSession = useCallback(async () => {
     if (!publicKey || !settings || !connection) return;
@@ -294,9 +331,16 @@ export default function SwapScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Swap Queue</Text>
-        <Text style={styles.walletAddress}>
-          {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
-        </Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={fetchBalances} style={styles.refreshBtn}>
+            <Text style={styles.refreshBtnText}>{balancesLoading ? '...' : '↻'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleDisconnect} style={styles.walletBtn}>
+            <Text style={styles.walletAddress}>
+              {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Balances */}
@@ -304,8 +348,8 @@ export default function SwapScreen() {
         {Object.entries(balances).map(([token, { balance }]) => (
           <View key={token} style={styles.balanceItem}>
             <Text style={styles.balanceTokenLabel}>{token}</Text>
-            <Text style={styles.balanceTokenValue}>
-              {token === 'SOL' ? balance.toFixed(4) : balance.toFixed(2)}
+            <Text style={[styles.balanceTokenValue, balancesLoading && { color: '#666' }]}>
+              {balancesLoading ? '...' : token === 'SOL' ? balance.toFixed(4) : balance.toFixed(2)}
             </Text>
           </View>
         ))}
@@ -474,6 +518,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     paddingTop: 12,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  refreshBtn: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  refreshBtnText: {
+    color: '#14F195',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  walletBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   walletAddress: {
     color: '#14F195',
