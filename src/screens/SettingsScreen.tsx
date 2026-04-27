@@ -27,7 +27,6 @@ export default function SettingsScreen() {
 
   const [settings, setSettings] = useState<AppSettings>({
     swapsPerDay: 50,
-    dailyBudgetUsd: 100,
     enableNotifications: true,
     enableBackgroundSwaps: false,
     preferredFromToken: 'ALL',
@@ -125,14 +124,6 @@ export default function SettingsScreen() {
     [settings.swapsPerDay, updateSetting],
   );
 
-  const adjustBudget = useCallback(
-    (delta: number) => {
-      const newVal = Math.max(10, Math.min(1000, settings.dailyBudgetUsd + delta));
-      updateSetting('dailyBudgetUsd', newVal);
-    },
-    [settings.dailyBudgetUsd, updateSetting],
-  );
-
   const adjustDelayMin = useCallback(
     (delta: number) => {
       const newVal = Math.max(0.5, Math.min(settings.delayMaxMinutes - 0.5, settings.delayMinMinutes + delta));
@@ -180,27 +171,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.stepBtn} onPress={() => adjustSwaps(5)}>
             <Text style={styles.stepBtnText}>+5</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Daily Budget */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Daily Budget</Text>
-        <Text style={styles.cardSubtitle}>Maximum USD to spend per session</Text>
-        <View style={styles.stepper}>
-          <TouchableOpacity style={styles.stepBtn} onPress={() => adjustBudget(-25)}>
-            <Text style={styles.stepBtnText}>-25</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.stepBtn} onPress={() => adjustBudget(-5)}>
-            <Text style={styles.stepBtnText}>-5</Text>
-          </TouchableOpacity>
-          <Text style={styles.stepValue}>${settings.dailyBudgetUsd}</Text>
-          <TouchableOpacity style={styles.stepBtn} onPress={() => adjustBudget(5)}>
-            <Text style={styles.stepBtnText}>+5</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.stepBtn} onPress={() => adjustBudget(25)}>
-            <Text style={styles.stepBtnText}>+25</Text>
           </TouchableOpacity>
         </View>
       </View>

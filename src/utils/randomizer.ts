@@ -85,20 +85,46 @@ export function generateSwapQueue(count: number, options: SwapQueueOptions = {})
   const shuffledPairs = shuffleArray(pairs);
   const queue = [];
 
+  // Track remaining balance per token for dynamic amount calculation
+  const remainingBalance: Record<string, number> = {};
+  if (tokenBalancesUsd) {
+    for (const [token, bal] of Object.entries(tokenBalancesUsd)) {
+      remainingBalance[token] = bal * 0.8; // 20% reserve for gas
+    }
+  }
+
+  // Count how many swaps will use each token (for dividing balance)
+  const swapsPerToken: Record<string, number> = {};
+  for (let i = 0; i < count; i++) {
+    const pair = shuffledPairs[i % shuffledPairs.length];
+    swapsPerToken[pair.from] = (swapsPerToken[pair.from] ?? 0) + 1;
+  }
+
   for (let i = 0; i < count; i++) {
     const pair = shuffledPairs[i % shuffledPairs.length];
 
-    // Cap swap amount to available balance of from-token
-    let maxUsd = SWAP_AMOUNT_MAX_USD;
+    // Dynamic swap amount based on actual available balance
+    let amountUsd: number;
     if (tokenBalancesUsd) {
-      const available = tokenBalancesUsd[pair.from] ?? 0;
-      // Reserve 20% of balance for gas/other swaps
-      maxUsd = Math.min(SWAP_AMOUNT_MAX_USD, available * 0.8);
+      const available = remainingBalance[pair.from] ?? 0;
+      const swapsLeft = Math.max(1, swapsPerToken[pair.from] ?? 1);
+
+      // Divide remaining balance evenly among remaining swaps for this token
+      // Add ±30% randomization for natural-looking behavior
+      const perSwap = available / swapsLeft;
+      const minAmount = Math.max(SWAP_AMOUNT_MIN_USD, perSwap * 0.7);
+      const maxAmount = Math.min(perSwap * 1.3, available);
+      amountUsd = maxAmount <= minAmount
+        ? Math.round(Math.max(SWAP_AMOUNT_MIN_USD, minAmount) * 100) / 100
+        : Math.round(randomInRange(minAmount, maxAmount) * 100) / 100;
+
+      // Deduct from remaining balance for this token
+      remainingBalance[pair.from] = Math.max(0, available - amountUsd);
+      swapsPerToken[pair.from] = Math.max(0, swapsLeft - 1);
+    } else {
+      // Fallback to fixed range if no balances available
+      amountUsd = Math.round(randomInRange(SWAP_AMOUNT_MIN_USD, SWAP_AMOUNT_MAX_USD) * 100) / 100;
     }
-    const minUsd = Math.min(SWAP_AMOUNT_MIN_USD, maxUsd);
-    const amountUsd = maxUsd <= minUsd
-      ? Math.round(minUsd * 100) / 100
-      : Math.round(randomInRange(minUsd, maxUsd) * 100) / 100;
 
     queue.push({
       fromToken: pair.from,

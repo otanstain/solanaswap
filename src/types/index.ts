@@ -26,7 +26,6 @@ export interface SessionState {
 
 export interface AppSettings {
   swapsPerDay: number;
-  dailyBudgetUsd: number;
   enableNotifications: boolean;
   enableBackgroundSwaps: boolean;
   preferredFromToken: string;

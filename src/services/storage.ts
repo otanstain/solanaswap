@@ -10,7 +10,6 @@ const KEYS = {
 
 const DEFAULT_SETTINGS: AppSettings = {
   swapsPerDay: DEFAULT_SWAPS_PER_DAY,
-  dailyBudgetUsd: 100,
   enableNotifications: true,
   enableBackgroundSwaps: false,
   preferredFromToken: 'ALL',
