@@ -13,7 +13,7 @@ import { createSession, runSwapSession, abortSession, SwapResult } from '../serv
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
 import { getTokenBalance } from '../services/jupiter';
-import { TOKENS } from '../constants/tokens';
+import { TOKENS, SWAP_AMOUNT_MIN_USD } from '../constants/tokens';
 import {
   scheduleNextSwapNotification,
   sendSwapCompletedNotification,
@@ -103,15 +103,49 @@ export default function SwapScreen() {
   }, [connect]);
 
   const handleStartSession = useCallback(async () => {
-    if (!publicKey || !settings) return;
+    if (!publicKey || !settings || !connection) return;
 
     await requestNotificationPermissions();
     await cancelAllNotifications();
+
+    // Fetch fresh balances before generating swap queue
+    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
+    const freshBalances: Record<string, number> = {};
+    const freshBalancesFull: Record<string, { balance: number; balanceUsd: number }> = {};
+    for (const token of tokens) {
+      const result = await getTokenBalance(connection, publicKey, token);
+      freshBalances[token] = result.balanceUsd;
+      freshBalancesFull[token] = result;
+    }
+    setBalances(freshBalancesFull);
+
+    // Check if selected token (or any token) has enough balance
+    if (selectedFromToken !== 'ALL') {
+      const selectedBalance = freshBalances[selectedFromToken] ?? 0;
+      if (selectedBalance * 0.8 < SWAP_AMOUNT_MIN_USD) {
+        Alert.alert(
+          'Insufficient Balance',
+          `${selectedFromToken} balance: $${selectedBalance.toFixed(2)}. Need at least $${SWAP_AMOUNT_MIN_USD} to swap. Try selecting "ALL" or a different token.`,
+        );
+        return;
+      }
+    } else {
+      const hasAffordableToken = Object.values(freshBalances).some((v) => v * 0.8 >= SWAP_AMOUNT_MIN_USD);
+      if (!hasAffordableToken) {
+        const totalBalanceUsd = Object.values(freshBalances).reduce((sum, v) => sum + v, 0);
+        Alert.alert(
+          'Insufficient Balance',
+          `No token has enough balance for a swap (min $${SWAP_AMOUNT_MIN_USD}). Total: $${totalBalanceUsd.toFixed(2)}.`,
+        );
+        return;
+      }
+    }
 
     const newSession = createSession(settings.swapsPerDay, {
       preferredFromToken: selectedFromToken,
       delayMinMinutes: settings.delayMinMinutes,
       delayMaxMinutes: settings.delayMaxMinutes,
+      tokenBalancesUsd: freshBalances,
     });
     setSession(newSession);
 
@@ -160,7 +194,7 @@ export default function SwapScreen() {
         newSession.totalGasSpent / 1e9,
       );
     }
-  }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances]);
+  }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances, connection]);
 
   const handleStopSession = useCallback(() => {
     Alert.alert('Stop Session', 'Are you sure you want to stop the current session?', [
