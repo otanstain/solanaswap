@@ -5,11 +5,12 @@ export interface SwapTask {
   amountUsd: number;
   slippageBps: number;
   delayMs: number;
-  status: 'pending' | 'executing' | 'completed' | 'failed';
+  status: 'pending' | 'executing' | 'confirming' | 'completed' | 'failed' | 'timeout';
   txSignature?: string;
   errorMessage?: string;
   executedAt?: number;
   gasUsed?: number;
+  confirmationStatus?: 'sent' | 'confirming' | 'confirmed' | 'finalized' | 'failed' | 'expired' | 'timeout';
 }
 
 export interface SessionState {

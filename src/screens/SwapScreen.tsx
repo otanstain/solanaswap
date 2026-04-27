@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SessionState, SwapTask, AppSettings } from '../types';
 import { useMobileWallet } from '../hooks/useMobileWallet';
-import { createSession, runSwapSession, abortSession } from '../services/swapEngine';
+import { createSession, runSwapSession, abortSession, SwapResult } from '../services/swapEngine';
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
 import { getTokenBalance } from '../services/jupiter';
@@ -122,7 +122,7 @@ export default function SwapScreen() {
       (updated) => {
         setSession({ ...updated });
       },
-      async (task: SwapTask, result) => {
+      async (task: SwapTask, result: SwapResult) => {
         const totalSwaps = newSession.swapQueue.length;
         const completed = newSession.completedToday;
         const label = `${task.fromToken} → ${task.toToken}`;
@@ -190,6 +190,7 @@ export default function SwapScreen() {
           isCurrent && styles.swapItemActive,
           item.status === 'completed' && styles.swapItemCompleted,
           item.status === 'failed' && styles.swapItemFailed,
+          item.status === 'timeout' && styles.swapItemTimeout,
         ]}
       >
         <View style={styles.swapItemLeft}>
@@ -209,17 +210,28 @@ export default function SwapScreen() {
               styles.swapStatus,
               item.status === 'completed' && styles.statusCompleted,
               item.status === 'failed' && styles.statusFailed,
+              item.status === 'timeout' && styles.statusTimeout,
               item.status === 'executing' && styles.statusExecuting,
+              item.status === 'confirming' && styles.statusConfirming,
             ]}
           >
             {item.status === 'pending'
               ? 'Pending'
               : item.status === 'executing'
               ? 'Signing...'
+              : item.status === 'confirming'
+              ? 'Confirming...'
               : item.status === 'completed'
-              ? 'Done'
+              ? (item.confirmationStatus === 'finalized' ? 'Finalized' : 'Confirmed')
+              : item.status === 'timeout'
+              ? 'Timeout'
               : 'Failed'}
           </Text>
+          {item.txSignature && (
+            <Text style={styles.txSignatureText}>
+              {item.txSignature.slice(0, 8)}...
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -319,20 +331,38 @@ export default function SwapScreen() {
         </View>
       )}
 
-      {/* Next Swap Timer */}
+      {/* Next Swap Timer / Status */}
       {session?.isActive && currentSwap && (
         <View style={styles.timerCard}>
-          <Text style={styles.timerLabel}>Next Swap</Text>
+          <Text style={styles.timerLabel}>
+            {currentSwap.status === 'confirming' ? 'Confirming Transaction' :
+             currentSwap.status === 'executing' ? 'Executing Swap' : 'Next Swap'}
+          </Text>
           <Text style={styles.timerPair}>
             {currentSwap.fromToken} → {currentSwap.toToken}
           </Text>
           <Text style={styles.timerAmount}>
             {formatUsd(currentSwap.amountUsd)}
           </Text>
-          <Text style={styles.timerCountdown}>{countdown}</Text>
+          {currentSwap.status === 'confirming' ? (
+            <Text style={[styles.timerCountdown, { color: '#FFA500', fontSize: 20 }]}>
+              Waiting for confirmation...
+            </Text>
+          ) : currentSwap.status === 'executing' ? (
+            <Text style={[styles.timerCountdown, { color: '#9945FF', fontSize: 20 }]}>
+              Sign in wallet...
+            </Text>
+          ) : (
+            <Text style={styles.timerCountdown}>{countdown}</Text>
+          )}
           <Text style={styles.timerSlippage}>
             Slippage: {(currentSwap.slippageBps / 100).toFixed(1)}%
           </Text>
+          {currentSwap.txSignature && currentSwap.status !== 'completed' && (
+            <Text style={[styles.timerSlippage, { fontFamily: 'monospace', marginTop: 4 }]}>
+              TX: {currentSwap.txSignature.slice(0, 12)}...
+            </Text>
+          )}
         </View>
       )}
 
@@ -566,6 +596,10 @@ const styles = StyleSheet.create({
     borderLeftColor: '#ff4444',
     opacity: 0.7,
   },
+  swapItemTimeout: {
+    borderLeftColor: '#FF8C00',
+    opacity: 0.7,
+  },
   swapItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -603,6 +637,18 @@ const styles = StyleSheet.create({
   },
   statusExecuting: {
     color: '#9945FF',
+  },
+  statusConfirming: {
+    color: '#FFA500',
+  },
+  statusTimeout: {
+    color: '#FF8C00',
+  },
+  txSignatureText: {
+    color: '#555',
+    fontSize: 10,
+    marginTop: 2,
+    fontFamily: 'monospace',
   },
   footer: {
     padding: 20,

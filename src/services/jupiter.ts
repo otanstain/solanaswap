@@ -230,23 +230,73 @@ export async function getTokenBalance(
   }
 }
 
+export interface TxConfirmationResult {
+  status: 'confirmed' | 'finalized' | 'failed' | 'expired' | 'timeout';
+  error?: string;
+  slot?: number;
+}
+
 export async function confirmTransaction(
   connection: Connection,
   signature: string,
-  timeoutMs: number = 60000,
-): Promise<boolean> {
+  timeoutMs: number = 90000,
+  onStatusUpdate?: (status: string) => void,
+): Promise<TxConfirmationResult> {
   const start = Date.now();
+  let lastStatus = '';
 
   while (Date.now() - start < timeoutMs) {
-    const status = await connection.getSignatureStatus(signature);
+    try {
+      const response = await connection.getSignatureStatus(signature, {
+        searchTransactionHistory: true,
+      });
 
-    if (status.value?.confirmationStatus === 'confirmed' ||
-        status.value?.confirmationStatus === 'finalized') {
-      return !status.value.err;
+      const value = response.value;
+
+      if (value) {
+        if (value.err) {
+          const errMsg = typeof value.err === 'string'
+            ? value.err
+            : JSON.stringify(value.err);
+          return { status: 'failed', error: `Transaction failed on-chain: ${errMsg}` };
+        }
+
+        if (value.confirmationStatus === 'finalized') {
+          if (lastStatus !== 'finalized') {
+            onStatusUpdate?.('finalized');
+          }
+          return { status: 'finalized', slot: value.slot ?? undefined };
+        }
+
+        if (value.confirmationStatus === 'confirmed') {
+          if (lastStatus !== 'confirmed') {
+            onStatusUpdate?.('confirmed');
+            lastStatus = 'confirmed';
+          }
+          // Wait for finalization but accept confirmed after extra time
+          if (Date.now() - start > timeoutMs * 0.7) {
+            return { status: 'confirmed', slot: value.slot ?? undefined };
+          }
+        }
+
+        if (value.confirmationStatus === 'processed') {
+          if (lastStatus !== 'processed') {
+            onStatusUpdate?.('processed');
+            lastStatus = 'processed';
+          }
+        }
+      }
+
+      // Check if blockhash expired (tx will never land)
+      if (Date.now() - start > 60000 && !value) {
+        return { status: 'expired', error: 'Transaction expired — blockhash no longer valid' };
+      }
+    } catch (err) {
+      console.warn('Confirmation check error:', err);
     }
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
-  throw new Error('Transaction confirmation timeout');
+  return { status: 'timeout', error: `Transaction not confirmed after ${Math.round(timeoutMs / 1000)}s` };
 }

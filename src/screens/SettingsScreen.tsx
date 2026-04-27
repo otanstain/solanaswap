@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { AppSettings } from '../types';
 import { loadSettings, saveSettings, clearAllData } from '../services/storage';
@@ -14,11 +15,16 @@ import {
   MIN_SWAPS_PER_DAY,
   MAX_SWAPS_PER_DAY,
   TOKENS,
+  PLATFORM_FEE_ACCOUNT,
 } from '../constants/tokens';
+import { useMobileWallet } from '../hooks/useMobileWallet';
+import { checkFeeWalletATAs, createMissingATAs, AtaStatus } from '../services/ataSetup';
 
 const FROM_TOKEN_OPTIONS = ['ALL', ...Object.keys(TOKENS)];
 
 export default function SettingsScreen() {
+  const { publicKey, isAuthorized, signAndSendTransaction } = useMobileWallet();
+
   const [settings, setSettings] = useState<AppSettings>({
     swapsPerDay: 50,
     dailyBudgetUsd: 100,
@@ -30,10 +36,50 @@ export default function SettingsScreen() {
     sessionDurationHours: 8,
   });
   const [saved, setSaved] = useState(false);
+  const [ataStatuses, setAtaStatuses] = useState<AtaStatus[]>([]);
+  const [ataLoading, setAtaLoading] = useState(false);
+  const [ataCreating, setAtaCreating] = useState(false);
 
   useEffect(() => {
     loadSettings().then(setSettings);
   }, []);
+
+  const handleCheckATAs = useCallback(async () => {
+    setAtaLoading(true);
+    try {
+      const statuses = await checkFeeWalletATAs();
+      setAtaStatuses(statuses);
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to check ATAs');
+    } finally {
+      setAtaLoading(false);
+    }
+  }, []);
+
+  const handleCreateATAs = useCallback(async () => {
+    if (!publicKey || !isAuthorized) {
+      Alert.alert('Not Connected', 'Connect wallet on Swap screen first');
+      return;
+    }
+    setAtaCreating(true);
+    try {
+      const result = await createMissingATAs(publicKey, signAndSendTransaction as never);
+      if (result.created.length > 0) {
+        Alert.alert('ATAs Created', `Created: ${result.created.join(', ')}`);
+      }
+      if (result.errors.length > 0) {
+        Alert.alert('ATA Errors', result.errors.join('\n'));
+      }
+      if (result.created.length === 0 && result.errors.length === 0) {
+        Alert.alert('All ATAs Exist', 'All fee token accounts already exist');
+      }
+      await handleCheckATAs();
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to create ATAs');
+    } finally {
+      setAtaCreating(false);
+    }
+  }, [publicKey, isAuthorized, signAndSendTransaction, handleCheckATAs]);
 
   const updateSetting = useCallback(
     <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
@@ -269,6 +315,61 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      {/* Fee Account ATA Setup */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Fee Account Setup</Text>
+        <Text style={styles.cardSubtitle}>
+          Create token accounts on fee wallet to collect swap commissions
+        </Text>
+        <Text style={styles.feeWalletText}>
+          {PLATFORM_FEE_ACCOUNT.slice(0, 8)}...{PLATFORM_FEE_ACCOUNT.slice(-8)}
+        </Text>
+
+        {ataStatuses.length > 0 && (
+          <View style={styles.ataList}>
+            {ataStatuses.map((ata) => (
+              <View key={ata.token} style={styles.ataRow}>
+                <Text style={styles.ataToken}>{ata.token}</Text>
+                <Text style={[
+                  styles.ataStatus,
+                  ata.exists ? styles.ataExists : styles.ataMissing,
+                ]}>
+                  {ata.exists ? 'Active' : 'Not Created'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={styles.ataButtons}>
+          <TouchableOpacity
+            style={styles.ataCheckBtn}
+            onPress={handleCheckATAs}
+            disabled={ataLoading}
+          >
+            {ataLoading ? (
+              <ActivityIndicator color="#14F195" size="small" />
+            ) : (
+              <Text style={styles.ataCheckBtnText}>Check Status</Text>
+            )}
+          </TouchableOpacity>
+
+          {ataStatuses.some((a) => !a.exists) && (
+            <TouchableOpacity
+              style={styles.ataCreateBtn}
+              onPress={handleCreateATAs}
+              disabled={ataCreating}
+            >
+              {ataCreating ? (
+                <ActivityIndicator color="#0a0a0a" size="small" />
+              ) : (
+                <Text style={styles.ataCreateBtnText}>Create Missing ATAs</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
       {/* Save Button */}
       <TouchableOpacity
         style={[styles.saveBtn, saved && styles.savedBtn]}
@@ -409,5 +510,65 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 13,
     marginBottom: 8,
+  },
+  feeWalletText: {
+    color: '#555',
+    fontSize: 12,
+    fontFamily: 'monospace',
+    marginBottom: 12,
+  },
+  ataList: {
+    marginBottom: 12,
+  },
+  ataRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a4a',
+  },
+  ataToken: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  ataStatus: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  ataExists: {
+    color: '#14F195',
+  },
+  ataMissing: {
+    color: '#ff4444',
+  },
+  ataButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  ataCheckBtn: {
+    flex: 1,
+    backgroundColor: '#2a2a4a',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+  },
+  ataCheckBtnText: {
+    color: '#14F195',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  ataCreateBtn: {
+    flex: 1,
+    backgroundColor: '#14F195',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+  },
+  ataCreateBtnText: {
+    color: '#0a0a0a',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

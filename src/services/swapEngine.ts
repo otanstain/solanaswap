@@ -1,6 +1,6 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { SwapTask, SessionState } from '../types';
-import { generateSwapQueue, formatDuration, SwapQueueOptions } from '../utils/randomizer';
+import { generateSwapQueue, SwapQueueOptions } from '../utils/randomizer';
 import {
   getQuote,
   getSwapTransaction,
@@ -8,6 +8,7 @@ import {
   usdToTokenAmount,
   confirmTransaction,
   getTokenBalance,
+  TxConfirmationResult,
 } from './jupiter';
 import { TOKENS, RPC_ENDPOINT } from '../constants/tokens';
 import { updateStatsAfterSwap } from './storage';
@@ -45,13 +46,22 @@ export function abortSession(): void {
   }
 }
 
+export interface SwapResult {
+  success: boolean;
+  signature?: string;
+  gasUsed?: number;
+  error?: string;
+  confirmationStatus?: TxConfirmationResult['status'];
+}
+
 export async function executeSwap(
   task: SwapTask,
   userPublicKey: PublicKey,
   signAndSend: (tx: never) => Promise<string>,
   connection: Connection,
   remainingSwaps: number = 1,
-): Promise<{ success: boolean; signature?: string; gasUsed?: number; error?: string }> {
+  onStatusChange?: (status: string) => void,
+): Promise<SwapResult> {
   try {
     const fromTokenInfo = TOKENS[task.fromToken];
     if (!fromTokenInfo) {
@@ -101,6 +111,7 @@ export async function executeSwap(
       throw new Error('Calculated amount is too small');
     }
 
+    onStatusChange?.('quoting');
     const quote = await getQuote(
       task.fromToken,
       task.toToken,
@@ -108,27 +119,71 @@ export async function executeSwap(
       task.slippageBps,
     );
 
+    onStatusChange?.('building_tx');
     const swapTx = await getSwapTransaction(
       quote,
       userPublicKey.toBase58(),
       { fromToken: task.fromToken, toToken: task.toToken, amountLamports, slippageBps: task.slippageBps },
     );
 
+    onStatusChange?.('signing');
     const signature = await signAndSend(swapTx as never);
 
-    const confirmed = await confirmTransaction(connection, signature);
-    if (!confirmed) {
-      throw new Error('Transaction failed on-chain');
+    // Transaction sent — now confirm it
+    task.txSignature = signature;
+    task.confirmationStatus = 'sent';
+    onStatusChange?.('confirming');
+
+    const confirmResult = await confirmTransaction(
+      connection,
+      signature,
+      90000,
+      (txStatus) => {
+        task.confirmationStatus = txStatus as SwapTask['confirmationStatus'];
+        onStatusChange?.(txStatus);
+      },
+    );
+
+    task.confirmationStatus = confirmResult.status as SwapTask['confirmationStatus'];
+
+    if (confirmResult.status === 'failed') {
+      throw new Error(confirmResult.error ?? 'Transaction failed on-chain');
     }
 
-    const txInfo = await connection.getTransaction(signature, {
-      maxSupportedTransactionVersion: 0,
-    });
-    const gasUsed = txInfo?.meta?.fee ?? 5000;
+    if (confirmResult.status === 'expired') {
+      throw new Error(confirmResult.error ?? 'Transaction expired before confirmation');
+    }
+
+    if (confirmResult.status === 'timeout') {
+      return {
+        success: false,
+        signature,
+        error: confirmResult.error ?? 'Transaction confirmation timeout',
+        confirmationStatus: 'timeout',
+      };
+    }
+
+    // Transaction confirmed/finalized — get fee info
+    let gasUsed = 5000;
+    try {
+      const txInfo = await connection.getTransaction(signature, {
+        maxSupportedTransactionVersion: 0,
+      });
+      if (txInfo?.meta?.fee) {
+        gasUsed = txInfo.meta.fee;
+      }
+    } catch {
+      // Use default gas estimate if tx info fetch fails
+    }
 
     await updateStatsAfterSwap(gasUsed, task.amountUsd);
 
-    return { success: true, signature, gasUsed };
+    return {
+      success: true,
+      signature,
+      gasUsed,
+      confirmationStatus: confirmResult.status,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: message };
@@ -140,11 +195,14 @@ export async function runSwapSession(
   userPublicKey: PublicKey,
   signAndSend: (tx: never) => Promise<string>,
   onUpdate: (session: SessionState) => void,
-  onSwapComplete: (task: SwapTask, result: { success: boolean; signature?: string }) => void,
+  onSwapComplete: (task: SwapTask, result: SwapResult) => void,
 ): Promise<void> {
   sessionAbortController = new AbortController();
   const { signal } = sessionAbortController;
   const connection = new Connection(RPC_ENDPOINT, 'confirmed');
+
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 3;
 
   for (let i = session.currentSwapIndex; i < session.swapQueue.length; i++) {
     if (signal.aborted) {
@@ -180,29 +238,65 @@ export async function runSwapSession(
       return;
     }
 
-    // Execute swap
+    // Execute swap with confirmation tracking
     task.status = 'executing';
     onUpdate({ ...session });
 
     const remainingSwaps = session.swapQueue.length - i;
-    const result = await executeSwap(task, userPublicKey, signAndSend, connection, remainingSwaps);
+    const result = await executeSwap(
+      task,
+      userPublicKey,
+      signAndSend,
+      connection,
+      remainingSwaps,
+      (status) => {
+        if (status === 'confirming') {
+          task.status = 'confirming';
+        }
+        onUpdate({ ...session });
+      },
+    );
 
     if (result.success) {
       task.status = 'completed';
       task.txSignature = result.signature;
       task.gasUsed = result.gasUsed;
       task.executedAt = Date.now();
+      task.confirmationStatus = (result.confirmationStatus ?? 'confirmed') as SwapTask['confirmationStatus'];
       session.completedToday += 1;
       session.totalGasSpent += result.gasUsed ?? 0;
+      consecutiveFailures = 0;
     } else {
-      task.status = 'failed';
+      task.status = result.confirmationStatus === 'timeout' ? 'timeout' : 'failed';
       task.errorMessage = result.error;
+      task.txSignature = result.signature;
       session.failedToday += 1;
+      consecutiveFailures += 1;
 
       // Stop session if out of funds
       if (result.error?.includes('Insufficient ')) {
         session.isActive = false;
         session.nextSwapTime = null;
+        onSwapComplete(task, result);
+        onUpdate({ ...session });
+        return;
+      }
+
+      // Stop if tx timed out — likely network/RPC issue, don't cascade
+      if (result.confirmationStatus === 'timeout' || result.confirmationStatus === 'expired') {
+        session.isActive = false;
+        session.nextSwapTime = null;
+        task.errorMessage = `${result.error} — session stopped to prevent cascading`;
+        onSwapComplete(task, result);
+        onUpdate({ ...session });
+        return;
+      }
+
+      // Stop after consecutive failures to prevent snowball
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        session.isActive = false;
+        session.nextSwapTime = null;
+        task.errorMessage = `${result.error} — stopped after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`;
         onSwapComplete(task, result);
         onUpdate({ ...session });
         return;
