@@ -45,8 +45,8 @@ export async function checkFeeWalletATAs(): Promise<AtaStatus[]> {
   const connection = new Connection(RPC_ENDPOINT, 'confirmed');
   const results: AtaStatus[] = [];
 
-  // SOL doesn't need an ATA (native), but wrapped SOL does
-  const tokensToCheck = ['USDC', 'USDT', 'SKR'];
+  // All output tokens need ATAs, including wrapped SOL for SOL-output swaps
+  const tokensToCheck = ['SOL', 'USDC', 'USDT', 'SKR'];
 
   for (const symbol of tokensToCheck) {
     const tokenInfo = TOKENS[symbol];
