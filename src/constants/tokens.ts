@@ -55,7 +55,12 @@ export const TRADING_PAIRS: TradingPair[] = [
   { from: 'SKR', to: 'SOL', label: 'SKR → SOL' },
 ];
 
-export const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
+export const RPC_ENDPOINTS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+  'https://solana.public-rpc.com',
+];
+export const RPC_ENDPOINT = RPC_ENDPOINTS[0];
 export const JUPITER_API_URL = 'https://quote-api.jup.ag/v6';
 
 export const PLATFORM_FEE_BPS = 25; // 0.25%

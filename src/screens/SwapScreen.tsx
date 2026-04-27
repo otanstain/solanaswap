@@ -12,7 +12,7 @@ import { useMobileWallet } from '../hooks/useMobileWallet';
 import { createSession, runSwapSession, abortSession, SwapResult } from '../services/swapEngine';
 import { loadSettings } from '../services/storage';
 import { formatDuration, formatUsd, formatSol } from '../utils/randomizer';
-import { getTokenBalance } from '../services/jupiter';
+import { getAllBalances } from '../services/jupiter';
 import { TOKENS, SWAP_AMOUNT_MIN_USD } from '../constants/tokens';
 import {
   scheduleNextSwapNotification,
@@ -57,21 +57,15 @@ export default function SwapScreen() {
   }, []);
 
   const fetchBalances = useCallback(async () => {
-    if (!publicKey || !connection) return;
+    if (!publicKey) return;
     setBalancesLoading(true);
     try {
-      const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
-      const results = await Promise.all(
-        tokens.map(async (token) => {
-          const result = await getTokenBalance(connection, publicKey, token);
-          return [token, result] as const;
-        }),
-      );
-      setBalances(Object.fromEntries(results));
+      const result = await getAllBalances(publicKey);
+      setBalances(result);
     } finally {
       setBalancesLoading(false);
     }
-  }, [publicKey, connection]);
+  }, [publicKey]);
 
   useEffect(() => {
     if (isAuthorized) {
@@ -106,10 +100,12 @@ export default function SwapScreen() {
   const handleConnect = useCallback(async () => {
     try {
       await connect();
+      // Fetch balances immediately after wallet connects
+      fetchBalances();
     } catch (err) {
       Alert.alert('Connection Failed', err instanceof Error ? err.message : 'Unknown error');
     }
-  }, [connect]);
+  }, [connect, fetchBalances]);
 
   const handleDisconnect = useCallback(async () => {
     Alert.alert('Disconnect Wallet', 'Are you sure you want to disconnect?', [
@@ -204,22 +200,15 @@ export default function SwapScreen() {
   }, [publicKey, settings, signAndSendTransaction, selectedFromToken, fetchBalances, connection]);
 
   const handleStartSession = useCallback(async () => {
-    if (!publicKey || !settings || !connection) return;
+    if (!publicKey || !settings) return;
 
     setBalancesLoading(true);
-    const tokens = ['SOL', 'USDC', 'USDT', 'SKR'];
     const freshBalances: Record<string, number> = {};
-    const freshBalancesFull: Record<string, { balance: number; balanceUsd: number }> = {};
+    let freshBalancesFull: Record<string, { balance: number; balanceUsd: number }>;
     try {
-      const results = await Promise.all(
-        tokens.map(async (token) => {
-          const result = await getTokenBalance(connection, publicKey, token);
-          return { token, result };
-        }),
-      );
-      for (const { token, result } of results) {
-        freshBalances[token] = result.balanceUsd;
-        freshBalancesFull[token] = result;
+      freshBalancesFull = await getAllBalances(publicKey);
+      for (const [token, data] of Object.entries(freshBalancesFull)) {
+        freshBalances[token] = data.balanceUsd;
       }
       setBalances(freshBalancesFull);
     } catch (err) {
@@ -315,7 +304,7 @@ export default function SwapScreen() {
         },
       ],
     );
-  }, [publicKey, settings, connection, selectedFromToken, startSessionWithBalances]);
+  }, [publicKey, settings, selectedFromToken, startSessionWithBalances]);
 
   const handleStopSession = useCallback(() => {
     Alert.alert('Stop Session', 'Are you sure you want to stop the current session?', [

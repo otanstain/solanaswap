@@ -1,5 +1,5 @@
 import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js';
-import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS, PLATFORM_FEE_ACCOUNT } from '../constants/tokens';
+import { TOKENS, JUPITER_API_URL, PLATFORM_FEE_BPS, PLATFORM_FEE_ACCOUNT, RPC_ENDPOINTS } from '../constants/tokens';
 
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
@@ -209,49 +209,124 @@ export function usdToTokenAmount(
 }
 
 export async function getTokenBalance(
-  connection: Connection,
+  _connection: Connection,
   walletPubkey: import('@solana/web3.js').PublicKey,
   tokenSymbol: string,
 ): Promise<{ balance: number; balanceUsd: number }> {
   const tokenInfo = TOKENS[tokenSymbol];
   if (!tokenInfo) return { balance: 0, balanceUsd: 0 };
 
-  // Retry up to 3 times with backoff — public RPC is often rate-limited
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+
+  for (const rpcUrl of RPC_ENDPOINTS) {
     try {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, 1500 * attempt));
-      }
+      const conn = new Connection(rpcUrl, { commitment: 'confirmed' });
 
       let balance: number;
-
       if (tokenSymbol === 'SOL') {
-        const lamports = await connection.getBalance(walletPubkey, 'confirmed');
-        balance = lamports / Math.pow(10, tokenInfo.decimals);
+        const lamports = await conn.getBalance(walletPubkey, 'confirmed');
+        balance = lamports / 1e9;
       } else {
-        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+        const tokenAccounts = await conn.getParsedTokenAccountsByOwner(
           walletPubkey,
           { mint: tokenInfo.mint },
           'confirmed',
         );
-        if (tokenAccounts.value.length > 0) {
-          balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0;
-        } else {
-          balance = 0;
-        }
+        balance = tokenAccounts.value.length > 0
+          ? (tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0)
+          : 0;
       }
 
       const price = await getTokenPrice(tokenSymbol);
       return { balance, balanceUsd: balance * price };
     } catch (err) {
       lastError = err;
-      console.warn(`Balance fetch attempt ${attempt + 1}/3 for ${tokenSymbol} failed:`, err);
+      console.warn(`getTokenBalance ${tokenSymbol} via ${rpcUrl} failed:`, err);
     }
   }
 
-  console.error(`Failed to fetch ${tokenSymbol} balance after 3 attempts:`, lastError);
+  console.error(`All RPCs failed for ${tokenSymbol}:`, lastError);
   return { balance: 0, balanceUsd: 0 };
+}
+
+/**
+ * Fetch all token balances in minimal RPC calls, with fallback endpoints.
+ * 1 call for SOL balance + 1 call for all SPL token accounts = 2 RPC calls total.
+ * Tries each RPC endpoint until one succeeds.
+ */
+export async function getAllBalances(
+  walletPubkey: PublicKey,
+): Promise<Record<string, { balance: number; balanceUsd: number }>> {
+  const result: Record<string, { balance: number; balanceUsd: number }> = {
+    SOL: { balance: 0, balanceUsd: 0 },
+    USDC: { balance: 0, balanceUsd: 0 },
+    USDT: { balance: 0, balanceUsd: 0 },
+    SKR: { balance: 0, balanceUsd: 0 },
+  };
+
+  // Build mint→symbol lookup
+  const mintToSymbol: Record<string, string> = {};
+  for (const [symbol, info] of Object.entries(TOKENS)) {
+    if (symbol !== 'SOL') {
+      mintToSymbol[info.mint.toBase58()] = symbol;
+    }
+  }
+
+  let lastError: unknown = null;
+
+  for (const rpcUrl of RPC_ENDPOINTS) {
+    try {
+      const conn = new Connection(rpcUrl, {
+        commitment: 'confirmed',
+        confirmTransactionInitialTimeout: 10000,
+      });
+
+      // Fetch SOL + all SPL tokens in parallel (only 2 RPC calls)
+      const [lamports, tokenAccounts] = await Promise.all([
+        conn.getBalance(walletPubkey, 'confirmed'),
+        conn.getParsedTokenAccountsByOwner(
+          walletPubkey,
+          { programId: TOKEN_PROGRAM_ID },
+          'confirmed',
+        ),
+      ]);
+
+      // SOL balance
+      result.SOL.balance = lamports / 1e9;
+
+      // SPL token balances
+      for (const account of tokenAccounts.value) {
+        const parsed = account.account.data.parsed;
+        const mint = parsed.info.mint as string;
+        const symbol = mintToSymbol[mint];
+        if (symbol) {
+          result[symbol].balance = parsed.info.tokenAmount.uiAmount ?? 0;
+        }
+      }
+
+      // Fetch prices for non-zero balances
+      const pricePromises: Promise<void>[] = [];
+      for (const [symbol, data] of Object.entries(result)) {
+        if (data.balance > 0) {
+          pricePromises.push(
+            getTokenPrice(symbol)
+              .then((price) => { data.balanceUsd = data.balance * price; })
+              .catch(() => { data.balanceUsd = 0; }),
+          );
+        }
+      }
+      await Promise.all(pricePromises);
+
+      console.log(`Balances fetched via ${rpcUrl}:`, JSON.stringify(result));
+      return result;
+    } catch (err) {
+      lastError = err;
+      console.warn(`RPC ${rpcUrl} failed:`, err);
+    }
+  }
+
+  console.error('All RPC endpoints failed for balance fetch:', lastError);
+  return result;
 }
 
 export interface TxConfirmationResult {
